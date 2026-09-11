@@ -126,12 +126,12 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 			Filename: filepath.Base(a.Path), Format: a.Format,
 			Size: a.Size, DurationMS: a.DurationMS, Meta: string(raw),
 		}
-			if err := e.db.CreateArtifact(&sa); err != nil {
-				// 产物落库失败也必须进入终态，否则任务会永久停留在 running 且不发终态事件。
-				t.Status = store.StatusFailed
-				t.Error = fmt.Sprintf("保存产物失败: %v", err)
-				t.CostMS = time.Since(start).Milliseconds()
-				_ = e.db.UpdateTask(t)
+		if err := e.db.CreateArtifact(&sa); err != nil {
+			// 产物落库失败也必须进入终态，否则任务会永久停留在 running 且不发终态事件。
+			t.Status = store.StatusFailed
+			t.Error = fmt.Sprintf("保存产物失败: %v", err)
+			t.CostMS = time.Since(start).Milliseconds()
+			_ = e.db.UpdateTask(t)
 			e.emit(Event{Type: "error", TaskID: t.ID, Error: t.Error})
 			return t, saved, fmt.Errorf("保存产物失败: %w", err)
 		}
