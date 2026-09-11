@@ -32,7 +32,7 @@ type Artifact struct {
 	ID         string `gorm:"primaryKey;size:36"`
 	TaskID     string `gorm:"size:36;index"`
 	Kind       string `gorm:"size:16"` // audio|transcript|dialog|subtitle
-	Path       string // data 目录相对路径
+	Path       string // data 目录相对路径；_out 重定向时可为绝对路径
 	Filename   string `gorm:"size:255"`
 	Format     string `gorm:"size:16"`
 	Size       int64

@@ -15,12 +15,12 @@ import (
 )
 
 type Event struct {
-	Type      string // progress|done|error|canceled
-	TaskID    string
-	Progress  int
-	Note      string
-	Error     string
-	Artifacts []provider.Artifact
+	Type      string              `json:"type"` // progress|done|error|canceled
+	TaskID    string              `json:"task_id"`
+	Progress  int                 `json:"progress"`
+	Note      string              `json:"note"`
+	Error     string              `json:"error"`
+	Artifacts []provider.Artifact `json:"artifacts"`
 }
 
 type Engine struct {

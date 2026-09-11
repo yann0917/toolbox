@@ -16,27 +16,27 @@ const (
 )
 
 type ParamOption struct {
-	Value string
-	Label string
+	Value string `json:"value"`
+	Label string `json:"label"`
 }
 
 type ParamSpec struct {
-	Key         string
-	Label       string
-	Type        ParamType
-	Required    bool
-	Default     any
-	Options     []ParamOption
-	Placeholder string
-	Group       string
+	Key         string        `json:"key"`
+	Label       string        `json:"label"`
+	Type        ParamType     `json:"type"`
+	Required    bool          `json:"required"`
+	Default     any           `json:"default,omitempty"`
+	Options     []ParamOption `json:"options,omitempty"`
+	Placeholder string        `json:"placeholder,omitempty"`
+	Group       string        `json:"group,omitempty"`
 }
 
 type ToolMeta struct {
-	Provider    string
-	Name        string
-	Title       string
-	Description string
-	Group       string
+	Provider    string `json:"provider"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Group       string `json:"group"`
 }
 
 type TaskInput struct {
@@ -45,12 +45,12 @@ type TaskInput struct {
 }
 
 type Artifact struct {
-	Kind       string // audio|transcript|dialog|subtitle
-	Path       string // data 目录相对路径
-	Format     string
-	Size       int64
-	DurationMS int64
-	Meta       map[string]any
+	Kind       string         `json:"kind"` // audio|transcript|dialog|subtitle
+	Path       string         `json:"path"` // data 目录相对路径；_out 重定向时可为绝对路径
+	Format     string         `json:"format"`
+	Size       int64          `json:"size"`
+	DurationMS int64          `json:"duration_ms"`
+	Meta       map[string]any `json:"meta,omitempty"`
 }
 
 type TaskOutput struct {

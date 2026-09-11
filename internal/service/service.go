@@ -2,9 +2,11 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/yann0917/toolbox/internal/config"
 	"github.com/yann0917/toolbox/internal/provider"
@@ -73,3 +75,22 @@ func (s *Service) Registry() *provider.Registry { return s.reg }
 func (s *Service) Config() *config.Config       { return s.cfg }
 
 func (s *Service) Close() error { return nil } // gorm/sqlite 由进程退出回收；预留关闭钩子
+
+// TestSpeechConnection 用音色/凭证连通性检测：构造 TTS 客户端发 1 字合成请求。
+// 注意：真实调用会消耗少量合成配额，可接受。
+func (s *Service) TestSpeechConnection() (string, bool) {
+	cred := volcengine.SpeechCred{
+		AppID: s.cfg.Volc.Speech.AppID, AccessToken: s.cfg.Volc.Speech.AccessToken, APIKey: s.cfg.Volc.Speech.APIKey,
+	}
+	if err := cred.Validate(); err != nil {
+		return err.Error(), false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client := volcengine.NewTTSClient(cred)
+	_, err := client.Synthesize(ctx, volcengine.TTSSynthesizeReq{Text: "测", VoiceType: "zh_female_cancan_mars_bigtts", Format: "mp3"})
+	if err != nil {
+		return err.Error(), false
+	}
+	return "连接成功", true
+}
