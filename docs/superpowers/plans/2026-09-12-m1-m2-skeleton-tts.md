@@ -18,7 +18,7 @@
 - WebSocket 消息是事件流，不套 JSON 包络（沿用 `type` 字段语义）。
 - WebSocket 端点 `/api/ws`。
 - `--json` 机器可读契约（skill `skills/toolbox/references/cli.md`）：stdout 仅输出单个 JSON 对象；进度/告警走 stderr；退出码 0=成功、2=参数错误、3=任务失败、4=凭证缺失或无效。
-- 面向用户的文案（CLI 提示、错误消息、Web 文案）一律中文；代码标识符、注释用英文。
+- 面向用户的文案（CLI 提示、错误消息、Web 文案）一律中文；标识符用英文，注释可用中文。
 - 提交信息用 conventional commits（feat/test/chore/docs…），每个任务至少一次提交。
 - Go 测试用标准库 `testing`（不引 testify）；HTTP mock 用 `httptest`。
 - TTS 火山接口：`POST https://openspeech.bytedance.com/api/v1/tts`，Authorization 头 `Bearer;<token>`，cluster `volcano_tts`；响应 `{"code":3000,"message":"success","data":"<base64>"}`。
