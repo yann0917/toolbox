@@ -3,3 +3,6 @@ dist/
 bin/
 web/node_modules/
 web/dist/
+# embed 构建产物不入库，仅保留占位 index.html（保证裸 go build 可编译）
+cmd/toolbox/webdist/*
+!cmd/toolbox/webdist/index.html

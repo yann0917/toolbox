@@ -18,7 +18,27 @@
 
 ## 开发状态
 
-设计阶段，实施计划进行中。设计文档见 [docs/superpowers/specs/2026-09-12-toolbox-design.md](docs/superpowers/specs/2026-09-12-toolbox-design.md)。
+M1+M2 已完成（骨架 + TTS 端到端）；ASR/播客/人声分离待实施。设计文档见 [docs/superpowers/specs/2026-09-12-toolbox-design.md](docs/superpowers/specs/2026-09-12-toolbox-design.md)。
+
+## 快速开始
+
+```bash
+# 构建前端 + 编译单二进制（前端产物 go:embed 内嵌）
+make all
+
+# 配置火山引擎语音凭证
+./bin/toolbox config set volc.speech.app_id <APP ID>
+./bin/toolbox config set volc.speech.access_token <Token>
+
+# CLI 合成（机器可读输出，退出码 0 成功）
+./bin/toolbox tts "你好，toolbox" --out /tmp/hello.mp3 --json
+
+# 启动 Web 控制台（默认端口取配置 server.port，可用 --port 覆盖）
+./bin/toolbox serve --port 8080
+# 浏览器打开 http://127.0.0.1:8080 → TTS 页合成、播放、查看历史
+```
+
+未配置凭证时执行 `tts` 以退出码 4 结束，stderr 提示 `config set` 命令。
 
 ## 技术栈
 

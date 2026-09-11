@@ -19,7 +19,7 @@ func newRootCmd() *cobra.Command {
 		newConfigCmd(),
 		newVoicesCmd(),
 		newTTSCommand(),
-		newServeCommand(), // Task 14 实现，当前为占位
+		newServeCommand(),
 	)
 	return root
 }

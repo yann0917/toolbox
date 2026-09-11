@@ -8,8 +8,10 @@ test:
 
 web:
 	cd web && npm ci && npm run build
+	rm -rf cmd/toolbox/webdist && mkdir -p cmd/toolbox/webdist
+	cp -r web/dist/* cmd/toolbox/webdist/
 
-all: build
+all: web build
 
 clean:
 	rm -rf bin
