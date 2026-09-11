@@ -1,0 +1,29 @@
+# toolbox
+
+个人自用的多媒体 AI 工具箱：一套 Go 二进制，既是 CLI 也是 Web 控制台，首批接入火山引擎的四个能力。
+
+| 能力 | 说明 | 接口形态 |
+|---|---|---|
+| 语音合成 TTS | 文本转语音，多音色、语速音量可调 | HTTP + WebSocket |
+| 语音识别 ASR | 本地文件/URL 转文字，分句时间戳、SRT 字幕 | 流式 WebSocket / 异步 HTTP |
+| 语音播客 | 主题/长文本/网页一键生成双人播客 | WebSocket 事件流 |
+| 人声背景音分离 | 从音视频分离人声与背景音双轨 | AI MediaKit REST |
+
+## 特性
+
+- **双形态**：`toolbox tts/asr/podcast/separate` 命令行直用（脚本/agent 友好，`--json` 机器可读输出）；`toolbox serve` 启动 Web 控制台（React 19 + Vite，亮暗双主题，任务化交互 + WebSocket 进度推送）。
+- **单二进制**：前端产物 go:embed 内嵌，goroutine 任务池 + SQLite 状态，零外部依赖部署。
+- **可扩展**：Provider 抽象层，新平台/新工具以「实现接口 + 注册」接入，前端表单与 CLI 由参数 schema 驱动。
+- **Agent 可调用**：随仓库交付 [skills/toolbox](skills/toolbox/SKILL.md)，其他 agent 可直接通过 CLI 调用全部能力。
+
+## 开发状态
+
+设计阶段，实施计划进行中。设计文档见 [docs/superpowers/specs/2026-09-12-toolbox-design.md](docs/superpowers/specs/2026-09-12-toolbox-design.md)。
+
+## 技术栈
+
+Go（gin / gorm / cobra / resty / viper / gorilla/websocket）· React 19 + TypeScript + Vite + Tailwind CSS · SQLite
+
+## License
+
+Private.
