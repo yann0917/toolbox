@@ -107,6 +107,7 @@ toolbox/
 │   ├── server/             # gin 路由、WS hub、embed 静态资源、Range 音频流
 │   └── store/              # gorm 模型与查询
 ├── web/                    # React 19 + Vite 前端源码
+├── skills/toolbox/         # agent skill（SKILL.md + references/cli.md），随仓库交付
 └── data/                   # 运行时产物目录（默认 ~/.toolbox/data）
 ```
 
@@ -188,8 +189,10 @@ toolbox config set <key> <value> / toolbox config list
 toolbox voices list                                      # 音色列表查询与缓存
 ```
 
-- 快捷命令与 `toolbox run` 共享 service；CLI 输出人类可读进度（TUI 进度条），`--json` 输出机器可读。
+- 快捷命令与 `toolbox run` 共享 service；CLI 输出人类可读进度（TUI 进度条）。
+- **机器可读契约（agent 集成，供 skill 调用）**：`--json` 时 stdout 只输出单个 JSON 结果对象（`task_id/provider/tool/status/cost_ms/artifacts[]/summary`），进度与告警一律走 stderr；退出码 `0` 成功、`2` 参数错误、`3` 任务失败、`4` 凭证缺失或无效。该契约由 `skills/toolbox`（随仓库交付的 agent skill，含 `references/cli.md` 完整命令参考）消费。
 - 未配置凭证时给出明确指引（config set 命令示例）。
+- 音色查询：`toolbox voices list` 拉取并本地缓存音色列表（分类/性别/语言），供 CLI 提示与 Web 音色选择器共用。
 
 ## 9. 前端设计（React 19 + Vite）
 
