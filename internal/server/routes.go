@@ -1,10 +1,12 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/yann0917/toolbox/internal/config"
@@ -54,6 +56,12 @@ func (s *Server) createTask(c *gin.Context) {
 		fail(c, CodeBadRequest, "参数错误：provider/tool 必填")
 		return
 	}
+	// _out 是 CLI 内部约定（仅 cmd/toolbox 显式设置产物输出路径），
+	// Web 用户不可通过 params 透传，否则 TTS Tool 会把产物写到服务器任意路径。
+	if req.Params == nil {
+		req.Params = map[string]any{}
+	}
+	delete(req.Params, "_out")
 	id, err := s.svc.Engine().Submit(req.Provider, req.Tool, req.Params, nil)
 	if err != nil {
 		failErr(c, err)
@@ -123,10 +131,19 @@ func (s *Server) cancelTask(c *gin.Context) {
 // artifactAbsPath 将产物相对路径解析到 data 目录下，防止路径穿越。
 // Task 7 审查修正：CLI --out 重定向时产物路径可为绝对路径，直接使用；
 // 相对路径才拼接到 data 目录。
+// Task 9 审查修正：相对路径必须封闭在 data 目录内，`../` 逃逸一律拒绝。
 func (s *Server) artifactAbsPath(rel string) (string, error) {
-	abs := rel
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(s.svc.Config().DataDir, abs)
+	if filepath.IsAbs(rel) {
+		// _out 契约：CLI 显式指定的绝对路径产物
+		if _, err := os.Stat(rel); err != nil {
+			return "", err
+		}
+		return rel, nil
+	}
+	abs := filepath.Join(s.svc.Config().DataDir, rel)
+	dataRoot := filepath.Clean(s.svc.Config().DataDir) + string(os.PathSeparator)
+	if !strings.HasPrefix(filepath.Clean(abs)+string(os.PathSeparator), dataRoot) {
+		return "", fmt.Errorf("非法产物路径: %s", rel)
 	}
 	if _, err := os.Stat(abs); err != nil {
 		return "", err

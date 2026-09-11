@@ -2,8 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,5 +109,88 @@ func TestErrorEnvelope(t *testing.T) {
 	_ = json.NewDecoder(resp2.Body).Decode(&e2)
 	if resp2.StatusCode != 200 || e2.Code != 6 {
 		t.Errorf("status=%d code=%d", resp2.StatusCode, e2.Code)
+	}
+}
+
+// TestCreateTaskStripsOutParam 验证 Web 入口剥离 params 中的 _out（Task 9 安全修复）。
+// _out 是 CLI 内部约定，透传会导致任意路径写文件。无凭证时任务会 failed，
+// 但 params 落库不受影响，故以落库后的 params 为最稳断言。
+func TestCreateTaskStripsOutParam(t *testing.T) {
+	ts, _ := newTestServer(t)
+	body := `{"provider":"volcengine","tool":"tts","params":{"text":"剥离测试","format":"mp3","_out":"/tmp/evil.mp3"}}`
+	resp, err := http.Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var created envelope
+	_ = json.NewDecoder(resp.Body).Decode(&created)
+	if created.Code != 0 {
+		t.Fatalf("submit code = %d (%s)", created.Code, created.Message)
+	}
+	createdData, _ := created.Data.(map[string]any)
+	taskID, _ := createdData["task_id"].(string)
+	if taskID == "" {
+		t.Fatalf("created = %v", created)
+	}
+
+	e := getEnvelope(t, ts.URL+"/api/tasks/"+taskID)
+	data, _ := e.Data.(map[string]any)
+	task, _ := data["task"].(map[string]any)
+	if task == nil {
+		t.Fatalf("data = %v", e.Data)
+	}
+	params, _ := task["params"].(map[string]any)
+	if params == nil {
+		t.Fatalf("task.params = %v", task["params"])
+	}
+	if _, exists := params["_out"]; exists {
+		t.Errorf("params 落库后仍含 _out: %v", params)
+	}
+	if params["text"] != "剥离测试" {
+		t.Errorf("其余 params 应保留，got %v", params)
+	}
+}
+
+// TestArtifactAbsPathJail 验证产物路径封闭在 data 目录内（Task 9 安全修复）。
+func TestArtifactAbsPathJail(t *testing.T) {
+	svc, err := service.NewWithHome(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	s := New(svc)
+
+	// 相对路径穿越 data 目录：必须拒绝
+	if abs, err := s.artifactAbsPath("../outside.txt"); err == nil {
+		t.Fatalf("../outside.txt 应返回 error，got abs=%q", abs)
+	}
+
+	// data 目录内不存在的相对路径：返回 stat 错误（而非穿越错误），且不返回路径
+	abs, err := s.artifactAbsPath("sub/ok.txt")
+	if err == nil {
+		t.Fatalf("sub/ok.txt 不存在，应返回 error，got %q", abs)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("应返回 stat not-exist 错误，got %v", err)
+	}
+	if abs != "" {
+		t.Errorf("出错时不应返回路径，got %q", abs)
+	}
+
+	// 正例：data 目录内的真实文件可解析
+	dataDir := svc.Config().DataDir
+	if err := os.MkdirAll(filepath.Join(dataDir, "ok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "ok", "a.mp3"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	abs, err = s.artifactAbsPath("ok/a.mp3")
+	if err != nil {
+		t.Fatalf("data 目录内文件应可解析，got %v", err)
+	}
+	if abs != filepath.Join(dataDir, "ok", "a.mp3") {
+		t.Errorf("abs = %q, want %q", abs, filepath.Join(dataDir, "ok", "a.mp3"))
 	}
 }
