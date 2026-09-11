@@ -45,6 +45,9 @@ func New(db *store.DB, reg *provider.Registry, dataDir string, concurrency int, 
 	}
 }
 
+// emit 在引擎 goroutine 内同步调用 notify 回调。
+// 契约：notify 由任务执行 goroutine 同步触发，订阅方必须非阻塞
+// （使用带缓冲的 channel 并配合丢弃策略），不得在回调内做耗时操作或再回调引擎。
 func (e *Engine) emit(ev Event) {
 	if e.notify != nil {
 		e.notify(ev)
@@ -121,11 +124,17 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 			Size: a.Size, DurationMS: a.DurationMS, Meta: string(raw),
 		}
 		if err := e.db.CreateArtifact(&sa); err != nil {
+			// 产物落库失败也必须进入终态，否则任务会永久停留在 running 且不发终态事件。
+			t.Status = store.StatusFailed
+			t.Error = fmt.Sprintf("保存产物失败: %v", err)
+			_ = e.db.UpdateTask(t)
+			e.emit(Event{Type: "error", TaskID: t.ID, Error: t.Error})
 			return t, saved, fmt.Errorf("保存产物失败: %w", err)
 		}
 		saved = append(saved, sa)
 	}
 
+	var ev Event
 	switch {
 	case runErr == nil:
 		t.Status = store.StatusSucceeded
@@ -134,16 +143,19 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 			raw, _ := json.Marshal(out.Summary)
 			t.Summary = string(raw)
 		}
-		e.emit(Event{Type: "done", TaskID: t.ID, Progress: 100, Artifacts: out.Artifacts})
+		ev = Event{Type: "done", TaskID: t.ID, Progress: 100, Artifacts: out.Artifacts}
 	case errors.Is(runErr, context.Canceled):
 		t.Status = store.StatusCanceled
-		e.emit(Event{Type: "canceled", TaskID: t.ID})
+		ev = Event{Type: "canceled", TaskID: t.ID}
 	default:
 		t.Status = store.StatusFailed
 		t.Error = runErr.Error()
-		e.emit(Event{Type: "error", TaskID: t.ID, Error: runErr.Error()})
+		ev = Event{Type: "error", TaskID: t.ID, Error: runErr.Error()}
 	}
+	// 先落库终态，再发终态事件：订阅方收到事件时 DB 状态已就绪。
+	// 任务开始处的「先 UpdateTask 再 emit」与本处顺序保持一致。
 	_ = e.db.UpdateTask(t)
+	e.emit(ev)
 	return t, saved, runErr
 }
 
