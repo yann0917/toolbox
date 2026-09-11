@@ -12,16 +12,30 @@ export interface TaskEvent {
 export function useTaskEvents(): TaskEvent | null {
   const [last, setLast] = useState<TaskEvent | null>(null);
   useEffect(() => {
-    const url = (import.meta.env.DEV ? "ws://localhost:8080" : `ws://${location.host}`) + "/api/ws";
-    let retry: ReturnType<typeof setTimeout>;
-    let ws: WebSocket;
+    let disposed = false;
+    let ws: WebSocket | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const connect = () => {
+      if (disposed) return;
+      const url = (import.meta.env.DEV ? "ws://localhost:8080" : `ws://${location.host}`) + "/api/ws";
       ws = new WebSocket(url);
-      ws.onmessage = (e) => setLast(JSON.parse(e.data));
-      ws.onclose = () => { retry = setTimeout(connect, 2000); };
+      ws.onmessage = (e) => {
+        try {
+          setLast(JSON.parse(e.data) as TaskEvent);
+        } catch {
+          // 忽略坏帧
+        }
+      };
+      ws.onclose = () => {
+        if (!disposed) retry = setTimeout(connect, 2000);
+      };
     };
     connect();
-    return () => { clearTimeout(retry); ws.close(); };
+    return () => {
+      disposed = true;
+      if (retry) clearTimeout(retry);
+      ws?.close();
+    };
   }, []);
   return last;
 }
