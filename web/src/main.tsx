@@ -6,6 +6,7 @@ import Layout from "./components/Layout";
 import WorkbenchPage from "./pages/WorkbenchPage";
 import TTSPage from "./pages/TTSPage";
 import HistoryPage from "./pages/HistoryPage";
+import SettingsPage from "./pages/SettingsPage";
 import "./theme.css";
 
 const qc = new QueryClient();
@@ -19,6 +20,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/" element={<WorkbenchPage />} />
             <Route path="/tts" element={<TTSPage />} />
             <Route path="/history" element={<HistoryPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
