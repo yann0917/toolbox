@@ -155,7 +155,7 @@ type TaskOutput struct {
 
 ## 7. API 与 WebSocket 协议
 
-REST（前缀 `/api`）：
+REST（前缀 `/api`，响应统一包络：HTTP 一律 200，body `{"code":N,"data":...,"message":"..."}`；业务码与 CLI 退出码同一语义：0 成功、2 参数错误、3 任务/上游失败、4 凭证、5 内部、6 资源不存在。例外：产物流/下载端点为二进制流，不套包络，按真实 HTTP 语义）：
 
 - `GET /api/tools` → 工具列表 + ParamSpec schema（前端渲染表单/CLI 生成共用）
 - `POST /api/tasks` `{provider, tool, params, file_ids?}` → `{task_id}`（上传走 `POST /api/uploads`，返回 file_id；上传仅用于走服务端流式通道的工具，如 ASR 本地文件）

@@ -13,7 +13,10 @@
 - Go module 名 `github.com/yann0917/toolbox`；所有 Go 代码在 `cmd/toolbox/`、`internal/`、`main.go`。
 - SQLite 驱动必须用 `github.com/glebarez/sqlite`（纯 Go，禁 CGO），保证 `GOOS=windows` 也能交叉编译。
 - 凭证与配置只存 `~/.toolbox/config.yaml`（文件权限 0600）；产物默认目录 `~/.toolbox/data`。
-- Web 端口默认 8080；REST 前缀 `/api`；WS 端点 `/api/ws`。
+- Web 端口默认 8080；REST 前缀 `/api`。
+- REST 响应统一包络：HTTP 状态码一律 200，body 为 `{"code":<int>,"data":<any>,"message":<string>}`；业务码与 CLI 退出码共用一套语义：`0` 成功、`2` 参数错误、`3` 任务/上游失败、`4` 凭证缺失或无效、`5` 内部错误、`6` 资源不存在。**例外**：`/api/artifacts/:id/stream` 与 `/download` 是二进制流端点（播放器 Range 依赖真实 HTTP 语义 200/206/416），不套 JSON 包络，出错时按真实状态码返回 404。
+- WebSocket 消息是事件流，不套 JSON 包络（沿用 `type` 字段语义）。
+- WebSocket 端点 `/api/ws`。
 - `--json` 机器可读契约（skill `skills/toolbox/references/cli.md`）：stdout 仅输出单个 JSON 对象；进度/告警走 stderr；退出码 0=成功、2=参数错误、3=任务失败、4=凭证缺失或无效。
 - 面向用户的文案（CLI 提示、错误消息、Web 文案）一律中文；代码标识符、注释用英文。
 - 提交信息用 conventional commits（feat/test/chore/docs…），每个任务至少一次提交。
@@ -2158,7 +2161,7 @@ git commit -m "feat: service 组装层与火山工具注册"
 ### Task 9: server：REST + WebSocket + settings
 
 **Files:**
-- Create: `internal/server/server.go`, `internal/server/routes.go`, `internal/server/hub.go`, `internal/server/dto.go`
+- Create: `internal/server/server.go`, `internal/server/routes.go`, `internal/server/apierr.go`, `internal/server/hub.go`, `internal/server/dto.go`, `internal/server/voices.go`
 - Test: `internal/server/routes_test.go`, `internal/server/hub_test.go`
 
 **Interfaces:**
@@ -2169,21 +2172,21 @@ git commit -m "feat: service 组装层与火山工具注册"
 func New(svc *service.Service) *Server
 func (s *Server) Handler() http.Handler        // 全部路由
 func (s *Server) Hub() *Hub                    // 广播 task 事件
-// 路由:
-// GET  /api/health
-// GET  /api/tools
-// POST /api/tasks            {provider,tool,params} -> {task_id}
-// GET  /api/tasks?provider=&status=&page=&size=
-// GET  /api/tasks/:id        -> task + artifacts
-// DELETE /api/tasks/:id
-// POST /api/tasks/:id/cancel
-// GET  /api/artifacts/:id/stream   (Range 支持)
-// GET  /api/artifacts/:id/download
-// GET  /api/settings  -> {volc:{speech:{app_id,has_access_token,api_key},mediakit:{has_api_key}}}
-// PUT  /api/settings  {app_id?,access_token?,api_key?,mediakit_api_key?}  // 空串不改
-// POST /api/settings/test-connection -> {ok, message}
-// GET  /api/voices  -> {voices:[{id,gender,category}]}
-// GET  /api/ws      -> WebSocket；连接即发 {"type":"task.snapshot",...}，之后广播事件
+// 所有 JSON 端点走统一包络 ok()/fail()（见 apierr.go），HTTP 一律 200：
+// GET  /api/health            -> {code:0, data:{status:"ok"}}
+// GET  /api/tools             -> {code:0, data:[{meta,param_specs}]}
+// POST /api/tasks             {provider,tool,params} -> {code:0, data:{task_id}}；参数/未知工具 -> code 2
+// GET  /api/tasks?provider=&status=&page=&size= -> {code:0, data:{items,total}}
+// GET  /api/tasks/:id         -> {code:0, data:{task,artifacts}}；不存在 -> code 6
+// DELETE /api/tasks/:id       -> {code:0, data:{ok:true}}
+// POST /api/tasks/:id/cancel  -> {code:0, data:{ok:true}}；非运行中 -> code 2
+// GET  /api/artifacts/:id/stream   (二进制流，不套包络，Range 语义)
+// GET  /api/artifacts/:id/download (二进制流，不套包络)
+// GET  /api/settings  -> {code:0, data:{volc:{...},data_dir}}
+// PUT  /api/settings  {app_id?,access_token?,api_key?,mediakit_api_key?} -> {code:0,data:{ok:true,note}}  // 空串不改
+// POST /api/settings/test-connection -> {code:0, data:{ok,message}}
+// GET  /api/voices  -> {code:0, data:{voices:[{id,gender,category}]}}
+// GET  /api/ws      -> WebSocket；连接即发 {"type":"task.snapshot",...}，之后广播事件（不套包络）
 ```
 
 - [ ] **Step 1: 写失败测试（路由 + hub 广播）**
@@ -2203,6 +2206,27 @@ import (
 	"github.com/yann0917/toolbox/internal/service"
 )
 
+type envelope struct {
+	Code    int    `json:"code"`
+	Data    any    `json:"data"`
+	Message string `json:"message"`
+}
+
+func getEnvelope(t *testing.T, url string) envelope {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("HTTP status = %d, want 200 (envelope)", resp.StatusCode)
+	}
+	var e envelope
+	_ = json.NewDecoder(resp.Body).Decode(&e)
+	return e
+}
+
 func newTestServer(t *testing.T) (*httptest.Server, *Server) {
 	t.Helper()
 	svc, err := service.NewWithHome(t.TempDir())
@@ -2219,51 +2243,69 @@ func newTestServer(t *testing.T) (*httptest.Server, *Server) {
 
 func TestHealth(t *testing.T) {
 	ts, _ := newTestServer(t)
-	resp, err := http.Get(ts.URL + "/api/health")
-	if err != nil {
-		t.Fatal(err)
+	e := getEnvelope(t, ts.URL+"/api/health")
+	if e.Code != 0 {
+		t.Fatalf("code = %d", e.Code)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	var body map[string]string
-	_ = json.NewDecoder(resp.Body).Decode(&body)
-	if body["status"] != "ok" {
-		t.Errorf("body = %v", body)
+	data, _ := e.Data.(map[string]any)
+	if data["status"] != "ok" {
+		t.Errorf("data = %v", data)
 	}
 }
 
 func TestToolsAndTaskSubmit(t *testing.T) {
 	ts, _ := newTestServer(t)
-	resp, _ := http.Get(ts.URL + "/api/tools")
-	var tools []map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&tools)
-	if len(tools) != 1 || tools[0]["name"] != "tts" {
-		t.Fatalf("tools = %v", tools)
+	e := getEnvelope(t, ts.URL+"/api/tools")
+	tools, _ := e.Data.([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools = %v", e.Data)
+	}
+	tool, _ := tools[0].(map[string]any)
+	meta, _ := tool["meta"].(map[string]any)
+	if meta["name"] != "tts" {
+		t.Fatalf("tool meta = %v", meta)
 	}
 
 	body := `{"provider":"volcengine","tool":"tts","params":{"text":"缺凭证也入库","format":"mp3"}}`
-	resp2, err := http.Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode != 200 {
-		t.Fatalf("submit status = %d", resp2.StatusCode)
+	defer resp.Body.Close()
+	var created envelope
+	_ = json.NewDecoder(resp.Body).Decode(&created)
+	if created.Code != 0 {
+		t.Fatalf("submit code = %d (%s)", created.Code, created.Message)
 	}
-	var created map[string]string
-	_ = json.NewDecoder(resp2.Body).Decode(&created)
-	if created["task_id"] == "" {
+	createdData, _ := created.Data.(map[string]any)
+	if createdData["task_id"] == "" {
 		t.Errorf("created = %v", created)
 	}
 
 	// 任务列表
-	resp3, _ := http.Get(ts.URL + "/api/tasks")
-	var list map[string]any
-	_ = json.NewDecoder(resp3.Body).Decode(&list)
-	if list["total"].(float64) != 1 {
+	list := getEnvelope(t, ts.URL+"/api/tasks")
+	listData, _ := list.Data.(map[string]any)
+	if listData["total"].(float64) != 1 {
 		t.Errorf("list = %v", list)
+	}
+}
+
+func TestErrorEnvelope(t *testing.T) {
+	ts, _ := newTestServer(t)
+	// 未知工具：code 2，HTTP 仍 200
+	body := `{"provider":"volcengine","tool":"nope","params":{}}`
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+	var e envelope
+	_ = json.NewDecoder(resp.Body).Decode(&e)
+	if resp.StatusCode != 200 || e.Code != 2 {
+		t.Errorf("status=%d code=%d message=%s", resp.StatusCode, e.Code, e.Message)
+	}
+	// 不存在的任务：code 6
+	resp2, _ := http.Get(ts.URL + "/api/tasks/not-exist")
+	var e2 envelope
+	_ = json.NewDecoder(resp2.Body).Decode(&e2)
+	if resp2.StatusCode != 200 || e2.Code != 6 {
+		t.Errorf("status=%d code=%d", resp2.StatusCode, e2.Code)
 	}
 }
 ```
@@ -2509,6 +2551,60 @@ func (s *Server) snapshotJSON() []byte {
 }
 ```
 
+`internal/server/apierr.go`（统一响应包络）:
+
+```go
+package server
+
+import (
+	"errors"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/yann0917/toolbox/internal/provider/volcengine"
+	"github.com/yann0917/toolbox/internal/store"
+)
+
+// 业务码与 CLI 退出码共用同一套语义。
+const (
+	CodeOK            = 0
+	CodeBadRequest    = 2 // 参数错误、未知工具
+	CodeTaskFailed    = 3 // 任务/上游失败
+	CodeBadCredential = 4 // 凭证缺失或无效
+	CodeInternal      = 5 // 内部错误
+	CodeNotFound      = 6 // 资源不存在
+)
+
+type envelope struct {
+	Code    int    `json:"code"`
+	Data    any    `json:"data"`
+	Message string `json:"message"`
+}
+
+func ok(c *gin.Context, data any) {
+	c.JSON(200, envelope{Code: CodeOK, Data: data, Message: "ok"})
+}
+
+func fail(c *gin.Context, code int, message string) {
+	c.JSON(200, envelope{Code: code, Data: nil, Message: message})
+}
+
+// failErr 按 error 类型映射业务码：NotFound->6、参数->2、凭证->4、其余->3。
+func failErr(c *gin.Context, err error) {
+	msg := err.Error()
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		fail(c, CodeNotFound, msg)
+	case errors.Is(err, volcengine.ErrNoCred), errors.Is(err, volcengine.ErrAuth):
+		fail(c, CodeBadCredential, msg)
+	case strings.Contains(msg, "缺少必填参数"), strings.Contains(msg, "未知工具"), strings.Contains(msg, "参数错误"):
+		fail(c, CodeBadRequest, msg)
+	default:
+		fail(c, CodeTaskFailed, msg)
+	}
+}
+```
+
 `internal/server/routes.go`:
 
 ```go
@@ -2529,7 +2625,7 @@ func (s *Server) Handler() http.Handler {
 	r := gin.Default()
 	api := r.Group("/api")
 	{
-		api.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
+		api.GET("/health", func(c *gin.Context) { ok(c, gin.H{"status": "ok"}) })
 		api.GET("/tools", s.listTools)
 		api.POST("/tasks", s.createTask)
 		api.GET("/tasks", s.listTasks)
@@ -2553,7 +2649,7 @@ func (s *Server) listTools(c *gin.Context) {
 		tool, _ := s.svc.Registry().Get(t.Provider, t.Name)
 		out = append(out, toolDTO{Meta: t, ParamSpecs: tool.ParamSpecs()})
 	}
-	c.JSON(200, out)
+	ok(c, out)
 }
 
 type createTaskReq struct {
@@ -2565,15 +2661,15 @@ type createTaskReq struct {
 func (s *Server) createTask(c *gin.Context) {
 	var req createTaskReq
 	if err := c.ShouldBindJSON(&req); err != nil || req.Provider == "" || req.Tool == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误：provider/tool 必填"})
+		fail(c, CodeBadRequest, "参数错误：provider/tool 必填")
 		return
 	}
 	id, err := s.svc.Engine().Submit(req.Provider, req.Tool, req.Params, nil)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		failErr(c, err)
 		return
 	}
-	c.JSON(200, gin.H{"task_id": id})
+	ok(c, gin.H{"task_id": id})
 }
 
 func (s *Server) listTasks(c *gin.Context) {
@@ -2584,51 +2680,51 @@ func (s *Server) listTasks(c *gin.Context) {
 	}
 	items, total, err := s.svc.DB().ListTasks(c.Query("provider"), nil, size, (page-1)*size)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		failErr(c, err)
 		return
 	}
 	dtos := make([]taskDTO, 0, len(items))
 	for _, t := range items {
 		dtos = append(dtos, toTaskDTO(t))
 	}
-	c.JSON(200, gin.H{"items": dtos, "total": total})
+	ok(c, gin.H{"items": dtos, "total": total})
 }
 
 func (s *Server) getTask(c *gin.Context) {
 	t, err := s.svc.DB().GetTask(c.Param("id"))
 	if err == store.ErrNotFound {
-		c.JSON(404, gin.H{"error": "任务不存在"})
+		fail(c, CodeNotFound, "任务不存在")
 		return
 	}
 	arts, err := s.svc.DB().ListArtifacts(t.ID)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		failErr(c, err)
 		return
 	}
 	adtos := make([]artifactDTO, 0, len(arts))
 	for _, a := range arts {
 		adtos = append(adtos, toArtifactDTO(a))
 	}
-	c.JSON(200, gin.H{"task": toTaskDTO(*t), "artifacts": adtos})
+	ok(c, gin.H{"task": toTaskDTO(*t), "artifacts": adtos})
 }
 
 func (s *Server) deleteTask(c *gin.Context) {
 	if err := s.svc.DB().DeleteTask(c.Param("id")); err == store.ErrNotFound {
-		c.JSON(404, gin.H{"error": "任务不存在"})
+		fail(c, CodeNotFound, "任务不存在")
 		return
 	} else if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		failErr(c, err)
 		return
 	}
-	c.JSON(200, gin.H{"ok": true})
+	ok(c, gin.H{"ok": true})
 }
 
 func (s *Server) cancelTask(c *gin.Context) {
 	if err := s.svc.Engine().Cancel(c.Param("id")); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		fail(c, CodeBadRequest, err.Error())
 		return
 	}
-	c.JSON(200, gin.H{"ok": true})
+	ok(c, gin.H{"ok": true})
 }
 
 // artifactAbsPath 将产物相对路径解析到 data 目录下，防止路径穿越。
@@ -2639,6 +2735,8 @@ func (s *Server) artifactAbsPath(rel string) (string, error) {
 	}
 	return abs, nil
 }
+
+// 注意：stream/download 是二进制流端点，不套 JSON 包络，按真实 HTTP 语义返回。
 
 func (s *Server) streamArtifact(c *gin.Context) {
 	a, err := s.svc.DB().GetArtifact(c.Param("id"))
@@ -2671,7 +2769,7 @@ func (s *Server) downloadArtifact(c *gin.Context) {
 
 func (s *Server) getSettings(c *gin.Context) {
 	cfg := s.svc.Config()
-	c.JSON(200, gin.H{
+	ok(c, gin.H{
 		"volc": gin.H{
 			"speech": gin.H{
 				"app_id":           cfg.Volc.Speech.AppID,
@@ -2694,7 +2792,7 @@ type putSettingsReq struct {
 func (s *Server) putSettings(c *gin.Context) {
 	var req putSettingsReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "参数错误"})
+		fail(c, CodeBadRequest, "参数错误")
 		return
 	}
 	setIfNotEmpty := func(key, val string) {
@@ -2706,16 +2804,16 @@ func (s *Server) putSettings(c *gin.Context) {
 	setIfNotEmpty("volc.speech.access_token", req.AccessToken)
 	setIfNotEmpty("volc.speech.api_key", req.APIKey)
 	setIfNotEmpty("volc.mediakit.api_key", req.MediaKitAPIKey)
-	c.JSON(200, gin.H{"ok": true, "note": "凭证已保存，重启 Web 服务后生效"})
+	ok(c, gin.H{"ok": true, "note": "凭证已保存，重启 Web 服务后生效"})
 }
 
 func (s *Server) testConnection(c *gin.Context) {
-	msg, ok := s.svc.TestSpeechConnection()
-	c.JSON(200, gin.H{"ok": ok, "message": msg})
+	msg, connOK := s.svc.TestSpeechConnection()
+	ok(c, gin.H{"ok": connOK, "message": msg})
 }
 
 func (s *Server) listVoices(c *gin.Context) {
-	c.JSON(200, gin.H{"voices": BuiltinVoices()})
+	ok(c, gin.H{"voices": BuiltinVoices()})
 }
 ```
 
@@ -3205,16 +3303,27 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 ```ts
 const base = import.meta.env.DEV ? "http://localhost:8080" : "";
 
+// 后端统一包络：{code, data, message}，HTTP 一律 200，code!==0 为业务错误。
+interface Envelope<T> { code: number; data: T; message: string }
+
 export async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(base + path, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${resp.status}`);
+  let body: Envelope<T> | null = null;
+  try {
+    body = await resp.json();
+  } catch {
+    throw new Error(`响应不是 JSON：HTTP ${resp.status}`);
   }
-  return resp.json();
+  if (typeof body.code !== "number") {
+    throw new Error(`响应格式错误：HTTP ${resp.status}`);
+  }
+  if (body.code !== 0) {
+    throw new Error(body.message || `业务错误码 ${body.code}`);
+  }
+  return body.data;
 }
 
 export interface ToolMeta { provider: string; name: string; title: string; description: string; group: string }
