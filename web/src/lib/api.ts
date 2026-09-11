@@ -1,10 +1,12 @@
-const base = import.meta.env.DEV ? "http://localhost:8080" : "";
+// 后端 API 基址：dev 直连后端端口，prod 走同源（页面与 API 同域部署）。
+// 供 fetchJSON 与页面拼接 stream/download 等资源链接共用。
+export const apiBase = import.meta.env.DEV ? "http://localhost:8080" : "";
 
 // 后端统一包络：{code, data, message}，HTTP 一律 200，code!==0 为业务错误。
 interface Envelope<T> { code: number; data: T; message: string }
 
 export async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(base + path, {
+  const resp = await fetch(apiBase + path, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
