@@ -179,7 +179,7 @@ WebSocket `GET /api/ws`，单一通道，JSON 消息：
 
 ```
 toolbox serve [--port 8080]
-toolbox tts <text|--file> [--voice <id>] [--format mp3|wav] [--speech-rate 0] [--out path]
+toolbox tts <text|--file> [--voice <id>] [--format mp3|wav] [--speed-ratio 1.0] [--volume-ratio 1.0] [--out path]
 toolbox asr <file|--url> [--out text.txt] [--srt] [--hotwords "词1,词2"]
 toolbox podcast <text|--file|--url> [--mode auto|script] [--script dialog.json]
                 [--speakers id1,id2] [--format mp3] [--out path]
