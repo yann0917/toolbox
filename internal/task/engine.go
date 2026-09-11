@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/yann0917/toolbox/internal/provider"
@@ -99,6 +100,8 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 		e.mu.Unlock()
 	}()
 
+	start := time.Now() // --json 契约要求 cost_ms 为任务总耗时
+
 	t.Status = store.StatusRunning
 	_ = e.db.UpdateTask(t)
 	e.emit(Event{Type: "progress", TaskID: t.ID, Progress: 0, Note: "任务开始"})
@@ -123,11 +126,12 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 			Filename: filepath.Base(a.Path), Format: a.Format,
 			Size: a.Size, DurationMS: a.DurationMS, Meta: string(raw),
 		}
-		if err := e.db.CreateArtifact(&sa); err != nil {
-			// 产物落库失败也必须进入终态，否则任务会永久停留在 running 且不发终态事件。
-			t.Status = store.StatusFailed
-			t.Error = fmt.Sprintf("保存产物失败: %v", err)
-			_ = e.db.UpdateTask(t)
+			if err := e.db.CreateArtifact(&sa); err != nil {
+				// 产物落库失败也必须进入终态，否则任务会永久停留在 running 且不发终态事件。
+				t.Status = store.StatusFailed
+				t.Error = fmt.Sprintf("保存产物失败: %v", err)
+				t.CostMS = time.Since(start).Milliseconds()
+				_ = e.db.UpdateTask(t)
 			e.emit(Event{Type: "error", TaskID: t.ID, Error: t.Error})
 			return t, saved, fmt.Errorf("保存产物失败: %w", err)
 		}
@@ -154,6 +158,7 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 	}
 	// 先落库终态，再发终态事件：订阅方收到事件时 DB 状态已就绪。
 	// 任务开始处的「先 UpdateTask 再 emit」与本处顺序保持一致。
+	t.CostMS = time.Since(start).Milliseconds()
 	_ = e.db.UpdateTask(t)
 	e.emit(ev)
 	return t, saved, runErr

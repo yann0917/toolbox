@@ -66,6 +66,11 @@ func TestSubmitSyncSuccess(t *testing.T) {
 	if arts[0].Kind != "audio" {
 		t.Errorf("artifact kind = %s", arts[0].Kind)
 	}
+	// 计时覆盖整个 Run（echo 工具内含 10ms 延迟），取保守下限 5ms；
+	// cost_ms 的真实端到端验证（--json 输出）在 Task 14 e2e 覆盖。
+	if task.CostMS < 5 {
+		t.Errorf("cost_ms = %d, want >= 5 (tool sleeps 10ms)", task.CostMS)
+	}
 	if len(events) == 0 || events[len(events)-1].Type != "done" {
 		t.Errorf("last event = %+v", events)
 	}

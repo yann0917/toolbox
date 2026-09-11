@@ -3,11 +3,32 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/yann0917/toolbox/internal/task"
 )
+
+// up 的 CheckOrigin 做同源校验：WS 会话可读取任务文本，不能对任意网页放行。
+// 顺序：无 Origin（非浏览器客户端/CLI/测试）放行 → 本机 Origin（localhost/127.0.0.1，
+// 覆盖 vite 代理等开发场景端口不一致）放行 → 严格同源（u.Host == r.Host）放行 → 拒绝。
+var up = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		if u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" {
+			return true
+		}
+		return u.Host == r.Host
+	},
+}
 
 type client struct {
 	conn *websocket.Conn
@@ -63,7 +84,6 @@ func (h *Hub) writePump(c *client) {
 }
 
 func (h *Hub) serveWS(w http.ResponseWriter, r *http.Request, snapshotJSON func() []byte) {
-	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	conn, err := up.Upgrade(w, r, nil)
 	if err != nil {
 		return
