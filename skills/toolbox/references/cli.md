@@ -34,7 +34,8 @@
 
 - `artifacts[].kind` 取值：`audio`（音频产物）、`transcript`（纯文本转写）、`subtitle`（SRT 字幕）、`dialog`（播客对话稿 JSON）。
 - 退出码：`0` 成功；`2` 用法/参数错误（不会消耗配额）；`3` 任务失败（上游报错，stderr 给中文原因）；`4` 凭证缺失或无效。
-- 未显式传 `--out` 时产物写入默认数据目录（`~/.toolbox/data`），JSON 中仍返回绝对路径。
+- `artifacts[].path` 一律为绝对路径（含 `--out` 重定向与默认数据目录两种来源），可直接交给下游工具使用。
+- 未显式传 `--out` 时产物写入默认数据目录（`~/.toolbox/data`，可用 `config set data_dir` 修改）。
 
 ## tts 语音合成
 
@@ -44,15 +45,15 @@ toolbox tts <text | --file path> [flags]
 
 | flag | 默认 | 说明 |
 |---|---|---|
-| `--voice` | settings 中默认音色 | 音色 ID，用 `toolbox voices list` 查询 |
+| `--voice` | `zh_female_cancan_mars_bigtts` | 音色 ID，用 `toolbox voices list` 查询 |
 | `--format` | `mp3` | `mp3` / `wav` / `pcm` / `ogg_opus` |
-| `--speech-rate` | `0` | 语速，-50 ~ 100 |
-| `--volume` | `0` | 音量，-50 ~ 100 |
+| `--speed-ratio` | `1.0` | 语速倍率，0.2 ~ 3.0 |
+| `--volume-ratio` | `1.0` | 音量倍率，0.2 ~ 3.0 |
 | `--file` | — | 从文件读文本（与位置参数二选一） |
 | `--out` | 数据目录自动命名 | 产物路径 |
 | `--json` | 关 | 机器可读输出 |
 
-超过 1000 字的长文本自动改走分段合成后拼接，无需手动处理。
+超过 1000 字的长文本自动改走分段合成后拼接（仅支持 mp3，其他格式长文本会报参数错误），无需手动处理。
 
 ## asr 语音识别
 
@@ -131,11 +132,11 @@ toolbox run <provider>.<tool> --help   # 动态查看该工具的参数 schema
 ## voices 音色查询
 
 ```bash
-toolbox voices list [--json]           # 列出可用音色（分类、性别、语言）
-toolbox voices preview <voice_id>      # 播放音色试听样本（输出样本 URL/路径）
+toolbox voices list [--json]           # 列出可用音色（分类、性别）
+toolbox voices preview <voice_id>      # 播放音色试听样本（规划中，当前未实现）
 ```
 
-结果会本地缓存，离线可用。
+音色表内置于程序，离线可用。
 
 ## config 配置管理
 

@@ -80,7 +80,8 @@ func runToolSync(c *cobra.Command, providerName, toolName string, params map[str
 	}
 	for _, a := range arts {
 		result.Artifacts = append(result.Artifacts, artifactOut{
-			Kind: a.Kind, Path: a.Path, Format: a.Format, Size: a.Size, DurationMS: a.DurationMS,
+			Kind: a.Kind, Path: absArtifactPath(cfg.DataDir, a.Path),
+			Format: a.Format, Size: a.Size, DurationMS: a.DurationMS,
 		})
 	}
 	// summary 从任务落库的 JSON 恢复（引擎在任务成功时序列化 TaskOutput.Summary）

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/yann0917/toolbox/internal/provider/volcengine"
@@ -37,6 +38,15 @@ func printJSON(v any) {
 
 func eprintf(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, format, a...)
+}
+
+// absArtifactPath 将产物相对路径解析为基于数据目录的绝对路径（Join 后 Clean）；
+// 已是绝对路径则原样返回，保证 JSON 的 artifacts[].path 始终为绝对路径。
+func absArtifactPath(dataDir, p string) string {
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(dataDir, p)
 }
 
 // exitCodeFor 将执行错误映射为退出码：2 参数、4 凭证、3 任务失败。
