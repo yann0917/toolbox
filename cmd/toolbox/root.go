@@ -10,11 +10,18 @@ import (
 var version = "dev"
 
 func newRootCmd() *cobra.Command {
-	return &cobra.Command{
+	root := &cobra.Command{
 		Use:     "toolbox",
 		Short:   "多媒体 AI 工具箱",
 		Version: version,
 	}
+	root.AddCommand(
+		newConfigCmd(),
+		newVoicesCmd(),
+		newTTSCommand(),
+		newServeCommand(), // Task 14 实现，当前为占位
+	)
+	return root
 }
 
 func main() {
