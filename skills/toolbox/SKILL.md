@@ -22,6 +22,8 @@ description: 多媒体 AI 工具箱 CLI（toolbox），通过火山引擎提供�
 
 ## 四个能力的最小用法
 
+> 当前构建提供 `tts` / `config` / `voices` / `serve` 命令；`asr` / `podcast` / `separate` / `run` 随后续里程碑交付，调用前先 `toolbox --help` 确认可用。
+
 ```bash
 # 文字转语音（返回 mp3 路径）
 toolbox tts "今天天气不错" --voice zh_male_dayixiansheng_v2_saturn_bigtts --out speech.mp3 --json
