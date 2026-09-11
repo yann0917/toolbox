@@ -30,7 +30,7 @@ func TestSynthesizeSuccess(t *testing.T) {
 	var body map[string]any
 	srv := newMockServer(t, 200, map[string]any{
 		"code": 3000, "message": "success",
-		"data": base64.StdEncoding.EncodeToString(audio),
+		"data":     base64.StdEncoding.EncodeToString(audio),
 		"addition": map[string]any{"duration": "8400"},
 	}, &headers, &body)
 	defer srv.Close()
