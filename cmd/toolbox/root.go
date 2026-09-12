@@ -19,6 +19,7 @@ func newRootCmd() *cobra.Command {
 		newConfigCmd(),
 		newVoicesCmd(),
 		newTTSCommand(),
+		newASRCommand(),
 		newServeCommand(),
 	)
 	return root

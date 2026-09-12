@@ -38,7 +38,7 @@ func newTTSCommand() *cobra.Command {
 			}
 			params := map[string]any{"text": text, "voice": voice, "format": format,
 				"speed_ratio": speedRatio, "volume_ratio": volumeRatio}
-			return runToolSync(c, "volcengine", "tts", params, outPath, jsonOut)
+			return runToolSync(c, "volcengine", "tts", params, nil, outPath, jsonOut)
 		},
 	}
 	f := cmd.Flags()
@@ -53,7 +53,8 @@ func newTTSCommand() *cobra.Command {
 }
 
 // runToolSync 同步执行工具：CLI 共享入口，处理 --out 重定位与 JSON/退出码。
-func runToolSync(c *cobra.Command, providerName, toolName string, params map[string]any, outPath string, jsonOut bool) error {
+// files 为任务文件输入（如 asr 的本地音频，key 与 Tool 约定一致），无文件传 nil。
+func runToolSync(c *cobra.Command, providerName, toolName string, params map[string]any, files map[string]string, outPath string, jsonOut bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -68,7 +69,7 @@ func runToolSync(c *cobra.Command, providerName, toolName string, params map[str
 	if outPath != "" {
 		params["_out"] = outPath // provider 侧支持 _out 参数指定产物绝对路径
 	}
-	task, arts, err := svc.Engine().SubmitSync(c.Context(), providerName, toolName, params, nil)
+	task, arts, err := svc.Engine().SubmitSync(c.Context(), providerName, toolName, params, files)
 	if err != nil {
 		eprintf("错误: %v\n", err)
 		os.Exit(exitCodeFor(err))

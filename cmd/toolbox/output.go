@@ -54,7 +54,8 @@ func exitCodeFor(err error) int {
 	switch {
 	case err == nil:
 		return 0
-	case strings.Contains(err.Error(), "缺少必填参数"), strings.Contains(err.Error(), "仅支持"):
+	case strings.Contains(err.Error(), "缺少必填参数"), strings.Contains(err.Error(), "仅支持"),
+		strings.Contains(err.Error(), "暂不支持"): // ASR 音频格式错误（audioFormatOf）
 		return 2
 	case errors.Is(err, volcengine.ErrNoCred), errors.Is(err, volcengine.ErrAuth):
 		return 4
