@@ -85,17 +85,18 @@ toolbox podcast <text | --file path | --url page_url | --script dialog.json> [fl
 
 | flag | 默认 | 说明 |
 |---|---|---|
-| `--speakers` | settings 中默认搭配 | 两个音色 ID，逗号分隔，顺序为说话人 A、B |
+| `--speakers` | —（必填） | 两个音色 ID，逗号分隔，顺序为说话人 A、B；用 `toolbox voices list` 查询，缺失或数量不对报参数错误 |
 | `--format` | `mp3` | `mp3` / `ogg_opus` / `pcm` / `aac` |
 | `--head-music` | 关 | 是否加开头音乐 |
-| `--out` | 数据目录自动命名 | 播客音频输出路径 |
+| `--file` | — | 从文件读播客文本（与位置参数/`--url`/`--script` 互斥） |
+| `--out` | 数据目录自动命名 | 播客音频输出路径（对话稿跟随同路径 `.json`） |
 | `--json` | 关 | 机器可读输出 |
 
-四种输入模式：
+四种输入互斥，最多提供一个（多个报参数错误）：位置参数 text / `--file` 文本文件 / `--url` 网页 / `--script` 对话稿 JSON 文件。
 
 1. 位置参数 / `--file`：主题或长文本，模型自动提炼为双人对话（建议 ≤12000 字）。
 2. `--url`：网页链接，服务端联网总结后生成。
-3. `--script`：自备对话稿，内容完全可控。格式：
+3. `--script`：自备对话稿（本地 JSON 文件，CLI 读文件内容作为 script 参数提交），内容完全可控。格式：
 
 ```json
 {
@@ -107,7 +108,8 @@ toolbox podcast <text | --file path | --url page_url | --script dialog.json> [fl
 ```
 
 - 产物：`audio`（播客成品）+ `dialog`（实际使用的对话稿 JSON，含每轮起止时间）。
-- 注意：生成耗时数分钟，长文本更久；上游断线会自动断点续传。
+- `summary` 结构：`rounds`（对话轮数）、`duration_s`（总时长秒）、`speakers`（两个音色 ID）、`audio_url_fallback`（音频分片为空时是否走了 audio_url 兜底下载）；有计费信息时附 `usage`。
+- 注意：生成耗时数分钟，长文本更久；上游断线会自动断点续传；生成过程 stderr 实时输出逐轮进度。
 
 ## separate 人声背景音分离
 
