@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yann0917/toolbox/internal/config"
 	"github.com/yann0917/toolbox/internal/service"
+	"github.com/yann0917/toolbox/internal/task"
 )
 
 func newTTSCommand() *cobra.Command {
@@ -64,7 +65,16 @@ func runToolSync(c *cobra.Command, providerName, toolName string, params map[str
 		return err
 	}
 	defer svc.Close()
-	svc.StartEngine(nil, 1)
+	// 人类模式订阅引擎事件，progress 打到 stderr（\r 原地刷新）；--json 保持静默（stdout 纯 JSON）。
+	notify := func(e task.Event) {
+		if e.Type == "progress" {
+			eprintf("\r[%s] %s %d%%", toolName, e.Note, e.Progress)
+		}
+	}
+	if jsonOut {
+		notify = nil
+	}
+	svc.StartEngine(notify, 1)
 
 	if outPath != "" {
 		params["_out"] = outPath // provider 侧支持 _out 参数指定产物绝对路径
