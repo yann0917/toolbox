@@ -137,12 +137,14 @@ export default function SeparatePage() {
                   <MiniPlayer src={`${apiBase}/api/artifacts/${a.id}/stream`} title={a.filename} />
                 </div>
                 <a href={`${apiBase}/api/artifacts/${a.id}/download`} className="shrink-0 text-sm text-[var(--accent)]">下载</a>
-                {track === "voice" && (
+                {track === "voice" && (a.format === "mp3" || a.format === "wav") ? (
                   <button onClick={() => navigate(`/asr?artifact=${a.id}`)}
                     className="shrink-0 px-3 py-1.5 rounded-lg border border-[var(--border)] text-sm hover:border-[var(--accent)]">
                     送 ASR识别
                   </button>
-                )}
+                ) : track === "voice" ? (
+                  <span className="shrink-0 text-xs text-[var(--muted)]" title="语音识别仅支持 mp3/wav，可重新分离并选择对应格式">格式暂不支持识别</span>
+                ) : null}
               </div>
             );
           })}
