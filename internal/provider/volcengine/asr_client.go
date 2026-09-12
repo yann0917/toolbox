@@ -20,8 +20,9 @@ const (
 	asrNostreamPath = "/api/v3/sauc/bigmodel_nostream"
 	// asrResourceID 录音文件识别大模型资源 ID（官方 demo 默认值；SpeechCred 无此字段，YAGNI 不做可选项）。
 	asrResourceID = "volc.bigasr.sauc.duration"
-	// asrReadTimeout 每次读帧前设置的超时。
-	asrReadTimeout = 30 * time.Second
+	// asrReadTimeout 每次读帧前设置的超时。服务端在收完音频到返回最终结果之间静默，
+	// 时长与音频长度正相关（nostream 单次返回），须显著大于 500MB 上限对应的处理时间。
+	asrReadTimeout = 10 * time.Minute
 	// asrWriteTimeout 每次写帧前设置的超时。
 	asrWriteTimeout = 30 * time.Second
 	// asrWavChunkIntervalMS wav 音频分片时长（对照官方 demo，按 200ms 音频量分片但不做实时节流）。
