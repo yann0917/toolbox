@@ -198,6 +198,10 @@ func TestPodcastGenerateSuccess(t *testing.T) {
 		if s.requestID == "" || s.connectID == "" {
 			t.Errorf("X-Api-Request-Id/Connect-Id 缺失: %q/%q", s.requestID, s.connectID)
 		}
+		// 官方语义：首连 session_id 即任务 task_id（=X-Api-Request-Id），retry_task_id 以此检索任务。
+		if s.sessionID != s.requestID {
+			t.Errorf("StartSession session_id = %q, want 与 X-Api-Request-Id 同值", s.sessionID)
+		}
 		if s.payload["retry_info"] != nil {
 			t.Errorf("首连不应携带 retry_info: %v", s.payload["retry_info"])
 		}
@@ -268,6 +272,10 @@ func TestPodcastReconnect(t *testing.T) {
 
 	var m *podMockServer
 	m = newPodMockServer(t, func(t *testing.T, conn *websocket.Conn, s *podMockSession) {
+		// 每次连接 session_id 均与 X-Api-Request-Id 同值：retry_task_id 与首连 session_id 恒等。
+		if s.sessionID != s.requestID {
+			t.Errorf("session_id = %q, want 与 X-Api-Request-Id 同值", s.sessionID)
+		}
 		if m.count() == 1 {
 			// 第一次连接：完成轮次 1 后直接断开（不回 152），触发客户端续传。
 			podWriteMockFrame(conn, podServerTextFrame(EventSessionStarted, sid, []byte("{}")))
@@ -369,6 +377,37 @@ func TestPodcastReconnectMidRound(t *testing.T) {
 	}
 	if len(res.Rounds) != 1 {
 		t.Errorf("rounds = %+v, want 1 条", res.Rounds)
+	}
+}
+
+// TestPodcastRoundError 362 事件 is_error 变体：该轮生成失败（如内容审核拦截）为致命错误，
+// 必须立即终止且不重试续传——否则错误轮次被计入已完成轮次，续传静默跳过该轮。
+func TestPodcastRoundError(t *testing.T) {
+	const sid = "sess-e"
+	m := newPodMockServer(t, func(t *testing.T, conn *websocket.Conn, s *podMockSession) {
+		podWriteMockFrame(conn, podServerTextFrame(EventSessionStarted, sid, []byte("{}")))
+		podWriteMockFrame(conn, podServerTextFrame(EventRoundStart, sid, []byte(`{"speaker":"spk_a","round_id":1,"text":"触发审核的文本"}`)))
+		podWriteMockFrame(conn, podServerAudioFrame(EventRoundResponse, sid, []byte{0x01}))
+		podWriteMockFrame(conn, podServerTextFrame(EventRoundEnd, sid, []byte(`{"is_error":true,"error_msg":"content review failed"}`)))
+		// 客户端收到 is_error 应立即断开，此处不再发 152。
+	})
+
+	c := NewPodcastClientWithURL(SpeechCred{AppID: "app", AccessToken: "tok"}, m.wsURL())
+	_, err := c.Generate(context.Background(), PodcastRequest{
+		InputText: "x",
+		Speakers:  [2]string{"a", "b"},
+	}, nil)
+	if err == nil {
+		t.Fatal("期望返回错误, 实际 nil")
+	}
+	if !strings.Contains(err.Error(), "content review failed") {
+		t.Errorf("错误信息应包含服务端 error_msg: %v", err)
+	}
+	if !strings.Contains(err.Error(), "播客轮次生成失败") {
+		t.Errorf("错误信息应包含中文包装: %v", err)
+	}
+	if m.count() != 1 {
+		t.Errorf("连接次数 = %d, want 1（362 is_error 为致命错误，重连注定失败不应重试）", m.count())
 	}
 }
 

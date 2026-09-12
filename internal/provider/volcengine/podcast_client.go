@@ -155,7 +155,10 @@ func (c *PodcastClient) generateOnce(ctx context.Context, req PodcastRequest, ta
 	if err != nil {
 		return false, acc.lastFinishedRound, err
 	}
-	sessionID := uuid.NewString()
+	// 官方语义（文档 1668014）：第一次 StartSession 的 session_id 就是任务的 task_id，
+	// 续传 retry_task_id 以首连 session_id 检索任务——故每次连接 session_id 统一取 taskID，
+	// 保证 retry_task_id 与首连 session_id 恒等（X-Api-Request-Id 同值）。
+	sessionID := taskID
 	headers := http.Header{}
 	headers.Set("X-Api-App-Id", c.cred.AppID)
 	headers.Set("X-Api-Access-Key", c.cred.AccessToken)
@@ -222,10 +225,13 @@ func (c *PodcastClient) generateOnce(ctx context.Context, req PodcastRequest, ta
 			}
 		case EventRoundResponse: // 361 音频分片
 			acc.audio.Write(frame.Audio)
-		case EventRoundEnd: // 362 轮次结束（时长秒）
+		case EventRoundEnd: // 362 轮次结束：正常形态为时长秒，is_error 变体为该轮生成失败
 			var end podRoundEndPayload
 			if err := json.Unmarshal(frame.Payload, &end); err != nil {
 				return false, acc.lastFinishedRound, fmt.Errorf("解析播客轮次结束事件失败: %w", err)
+			}
+			if end.IsError { // 轮次错误（如内容审核拦截）重连同参数注定失败：立即终止不计入完成轮次
+				return false, acc.lastFinishedRound, &podFatalError{fmt.Errorf("播客轮次生成失败: %s", end.ErrorMsg)}
 			}
 			if n := len(acc.rounds); n > 0 {
 				acc.rounds[n-1].DurationS = end.AudioDuration
@@ -371,11 +377,14 @@ func parsePodRoundMeta(data []byte) (PodcastRound, error) {
 	return PodcastRound{RoundID: m.RoundID, Speaker: m.Speaker, Text: m.Text}, nil
 }
 
-// podRoundEndPayload 362 事件 payload（时长/起止均为秒）。
+// podRoundEndPayload 362 事件 payload（两种形态：正常为时长/起止秒；
+// is_error=true 时携带 error_msg 表示该轮生成失败，如内容审核拦截）。
 type podRoundEndPayload struct {
 	AudioDuration float64 `json:"audio_duration"`
 	EndTime       float64 `json:"end_time"`
 	StartTime     float64 `json:"start_time"`
+	IsError       bool    `json:"is_error"`
+	ErrorMsg      string  `json:"error_msg"`
 }
 
 // podUsagePayload 154 事件 payload。
