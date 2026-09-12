@@ -39,6 +39,39 @@ type errorFail struct{}
 
 func (errorFail) Error() string { return "boom" }
 
+// detailTool 上报带 detail 的进度，用于验证引擎透传（如播客对话流轮次）。
+type detailTool struct{}
+
+func (detailTool) Meta() provider.ToolMeta {
+	return provider.ToolMeta{Provider: "fake", Name: "detail", Title: "Detail"}
+}
+func (detailTool) ParamSpecs() []provider.ParamSpec { return nil }
+func (detailTool) Run(ctx context.Context, in provider.TaskInput, report provider.ProgressReporter) (provider.TaskOutput, error) {
+	report(30, "第 1 轮", map[string]any{"round_id": 1, "text": "x"})
+	return provider.TaskOutput{}, nil
+}
+
+func TestEventDetailPassthrough(t *testing.T) {
+	var events []Event
+	e := newTestEngine(t, detailTool{}, &events)
+	if _, _, err := e.SubmitSync(context.Background(), "fake", "detail", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ev := range events {
+		if ev.Type == "progress" && ev.Detail["round_id"] == 1 && ev.Detail["text"] == "x" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("progress 事件未透传 detail: %+v", events)
+	}
+	// 向后兼容：detail 为 nil 的事件（含终态）不应携带该字段。
+	if last := events[len(events)-1]; last.Detail != nil {
+		t.Errorf("终态事件不应携带 detail: %+v", last)
+	}
+}
+
 func newTestEngine(t *testing.T, tool provider.Tool, events *[]Event) *Engine {
 	t.Helper()
 	db, err := OpenStore(t)

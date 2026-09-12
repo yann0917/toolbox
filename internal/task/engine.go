@@ -21,6 +21,7 @@ type Event struct {
 	Progress  int                 `json:"progress"`
 	Note      string              `json:"note"`
 	Error     string              `json:"error"`
+	Detail    map[string]any      `json:"detail,omitempty"` // 仅 progress 事件携带的工具自定义展示数据（如播客对话流轮次）
 	Artifacts []provider.Artifact `json:"artifacts"`
 }
 
@@ -109,11 +110,12 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 	e.sem <- struct{}{}
 	defer func() { <-e.sem }()
 
-	report := func(progress int, note string, _ map[string]any) {
+	report := func(progress int, note string, detail map[string]any) {
 		t.Progress = progress
 		t.ProgressNote = note
 		_ = e.db.UpdateTask(t)
-		e.emit(Event{Type: "progress", TaskID: t.ID, Progress: progress, Note: note})
+		// detail 可能为 nil（多数工具不传），omitempty 保证 JSON 输出向后兼容。
+		e.emit(Event{Type: "progress", TaskID: t.ID, Progress: progress, Note: note, Detail: detail})
 	}
 
 	out, runErr := tool.Run(ctx, provider.TaskInput{Params: params, Files: files}, report)
