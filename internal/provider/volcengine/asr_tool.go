@@ -62,6 +62,19 @@ func (t *ASRTool) ParamSpecs() []provider.ParamSpec {
 }
 
 func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provider.ProgressReporter) (provider.TaskOutput, error) {
+	// 参数校验先行：缺少输入、格式不受支持属参数错误（退出码 2），
+	// 不应被凭证校验（退出码 4）掩盖。
+	audioPath := in.Files["audio"]
+	if audioPath == "" && paramString(in.Params, "url") == "" {
+		return provider.TaskOutput{}, fmt.Errorf("缺少输入：请上传音频文件或提供音频 URL")
+	}
+	var format string
+	if audioPath != "" {
+		var err error
+		if format, err = audioFormatOf(audioPath); err != nil {
+			return provider.TaskOutput{}, err
+		}
+	}
 	if err := t.cred.Validate(); err != nil {
 		return provider.TaskOutput{}, err
 	}
@@ -76,10 +89,6 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 		audio, err := os.ReadFile(audioPath)
 		if err != nil {
 			return provider.TaskOutput{}, fmt.Errorf("读取音频文件失败: %w", err)
-		}
-		format, err := audioFormatOf(audioPath)
-		if err != nil {
-			return provider.TaskOutput{}, err
 		}
 		report(20, "正在识别音频（本地文件）", nil)
 		resp, err = t.ws.Recognize(ctx, ASRNostreamReq{
