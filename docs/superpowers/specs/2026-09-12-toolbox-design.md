@@ -211,14 +211,17 @@ toolbox voices list                                      # 音色列表查询与
 6. **历史**：任务表格（类型/状态/耗时筛选），行内重播、下载、删除、同参重跑；产物均有下载入口。
 7. **设置**：凭证配置 + 连接测试、默认参数、数据目录。
 
-视觉规范：
+视觉规范（M6 已落地，实现细节以 [design-system/toolbox/MASTER.md](../../../design-system/toolbox/MASTER.md) 为准）：
 
-- 主题：CSS variables 实现，暗色默认（近黑底 `#0A0A0B` 级 + 分层卡片 + 1px 低透明白边框），亮色完整适配；顶栏切换 + 跟随系统，localStorage 持久化。
-- 单一强调色：电光青（暗底上的科技感与音频工具气质契合），只用于主按钮/进度/激活态；状态色点带呼吸动画。
-- 字体：Inter/system-ui + 中文回退；数字 tabular-nums；编辑区等宽。
-- 质感细节：渐变高光边框、卡片 hover 微亮、进度条流光、骨架屏、空状态引导、toast（无 alert）。
-- 全局悬浮 mini-player：当前播放任务产物、上一/下一个切换，全站可听。
-- 自研迷你播放器组件（波形条 + 时间轴），不使用浏览器默认控件。
+- **设计方向**：把界面做成一台专业音频设备——近黑阳极面板、机架刻度线、琥珀信号色、等宽数字读数、刻印感微标签。判据：任何视觉选择都要能回答「这像不像录音棚里的设备」。
+- 主题：CSS variables + Tailwind v4 `@theme` 语义工具类（`bg-panel`/`text-fg-2`/`border-line`，页面不再散写 `var()`）；暗色默认（`#0A0A0C` 画布 + `#0F0F12` 面板 + `#141418` 卡片 + 发丝分隔线），亮色完整适配；顶栏三态切换（跟随系统/暗/亮），localStorage 持久化。
+- 色彩纪律：**琥珀 `#FF8A3D` 是唯一主操作色**（主按钮/激活态/焦点环）；绿 `#45D483` 只表示信号与成功/电平；红只表示错误与破坏性操作；禁止第二个装饰性强调色。
+- 字体：**Fira Sans**（界面）+ **Fira Code**（全部数字读数：时间码/时长/耗时/计数），中文逐字形回退 PingFang SC / 微软雅黑；以 `@fontsource` 自托管（离线可用，不依赖 Google CDN）；数字一律 tabular-nums；字重仅 400/500/600。
+- 图标：**Lucide** 统一 stroke 1.75，尺寸 16/20 两档；**禁止 emoji 作图标**（M1-M5 的 emoji 图标已全部替换）。
+- 组件库：`web/src/ui/` 统一实现 Button/Field/Input/Select/Textarea/Card/Skeleton/EmptyState/StatusBadge/ProgressBar/Toast/Modal/ConfirmDialog/Tabs/PageHeader/WavePlayer；页面禁止手写卡片/按钮样式。
+- 音频体验：自研 **WavePlayer**（WebAudio 解码真实峰值 + canvas 波形 + 已播段着色 + 点击拖拽定位 + mono 时间码）替代浏览器默认控件；**全局播放条**跨页面常驻，单实例音频通道保证同一时刻只播一路。
+- 反馈与状态：Skeleton 同构骨架（内容区不用 spinner）、EmptyState 引导、Toast 替代全部 `alert()`、破坏性操作走 ConfirmDialog；仅「运行中」允许呼吸/流光动画，且尊重 `prefers-reduced-motion`。
+- 布局：左侧固定导轨（激活态琥珀左标记）+ 顶栏（面包屑/API 健康灯/主题切换）；主区 `max-w-[1100px]` 居中；`<1024` 导轨收为图标态、`<768` 转抽屉；表单页 `≥1024` 两栏（编辑区 + 320px 参数面板）。
 
 ## 10. 错误处理
 
@@ -237,11 +240,12 @@ toolbox voices list                                      # 音色列表查询与
 
 ## 12. 里程碑
 
-1. **M1 骨架**：cobra + gin + gorm + config + embed 前端空壳跑通；tasks/artifacts 模型与任务引擎。
-2. **M2 TTS 端到端**：provider TTS（HTTP V1）→ service → REST/WS → 前端合成页 + 播放器 + 历史。CLI `toolbox tts`。
-3. **M3 ASR**：本地文件直发（官方 sauc nostream 协议）+ 异步 URL 通道；识别结果页（分句/时间戳）、TXT/SRT 导出。
-4. **M4 播客**：播客 WS 客户端（事件流、断点重试、audio_url 转存）；播客工坊页面。
-5. **M5 MediaKit 人声分离** + 工具联动（分离→ASR）。
-6. **M6 产品化打磨**：双主题完成度、mini-player、工作台统计、错误文案、README 与打包发布（goreleaser 单二进制）。
+1. **M1 骨架** ✅：cobra + gin + gorm + config + embed 前端空壳跑通；tasks/artifacts 模型与任务引擎。
+2. **M2 TTS 端到端** ✅：provider TTS（HTTP V1）→ service → REST/WS → 前端合成页 + 播放器 + 历史。CLI `toolbox tts`。
+3. **M3 ASR** ✅：本地文件直发（官方 sauc nostream 协议）+ 异步 URL 通道；识别结果页（分句/时间戳）、TXT/SRT 导出。
+4. **M4 播客** ✅：播客 WS 客户端（事件流、断点重试、audio_url 转存）；播客工坊页面。
+5. **M5 MediaKit 人声分离** ✅ + 工具联动（分离→ASR，`artifact_input` 通道）。
+6. **M6 产品化** ✅：设计系统（design-system/MASTER.md）、组件库、全站页面重做、WavePlayer 与全局播放条、双主题与响应式审计、`make dist` 交叉编译发布。
 
-依赖技术清单（Go）：gin、gorm(+sqlite driver)、cobra、resty（HTTP 客户端）、viper、gorilla/websocket（或 coder/websocket）。
+依赖技术清单（Go）：gin、gorm(+sqlite driver)、cobra、resty（HTTP 客户端）、viper、gorilla/websocket。
+前端：React 19、Vite、Tailwind CSS v4、TanStack Query、Zustand、Lucide、Fira Sans/Code（@fontsource 自托管）。

@@ -356,6 +356,7 @@ export default function ASRPage() {
                         ref={fileInputRef}
                         type="file"
                         accept={ACCEPT}
+                        aria-label="选择要识别的音频文件"
                         className="hidden"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
