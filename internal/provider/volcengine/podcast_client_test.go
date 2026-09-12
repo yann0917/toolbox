@@ -65,6 +65,7 @@ type podMockSession struct {
 	accessKey   string
 	appKey      string
 	connectID   string
+	resourceID  string
 	sessionID   string
 	payload     map[string]any
 	finishMu    sync.Mutex
@@ -96,11 +97,12 @@ func newPodMockServer(t *testing.T, handler func(t *testing.T, conn *websocket.C
 		}
 		defer conn.Close()
 		s := &podMockSession{
-			requestID: r.Header.Get("X-Api-Request-Id"),
-			appID:     r.Header.Get("X-Api-App-Id"),
-			accessKey: r.Header.Get("X-Api-Access-Key"),
-			appKey:    r.Header.Get("X-Api-App-Key"),
-			connectID: r.Header.Get("X-Api-Connect-Id"),
+			requestID:  r.Header.Get("X-Api-Request-Id"),
+			appID:      r.Header.Get("X-Api-App-Id"),
+			accessKey:  r.Header.Get("X-Api-Access-Key"),
+			appKey:     r.Header.Get("X-Api-App-Key"),
+			connectID:  r.Header.Get("X-Api-Connect-Id"),
+			resourceID: r.Header.Get("X-Api-Resource-Id"),
 		}
 		// 读 StartSession 帧并反向解析（event 应为 100，session_id 非空）。
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -189,6 +191,9 @@ func TestPodcastGenerateSuccess(t *testing.T) {
 		}
 		if s.appID != "app" || s.accessKey != "tok" || s.appKey != podAppKey {
 			t.Errorf("鉴权头 = %s/%s/%s", s.appID, s.accessKey, s.appKey)
+		}
+		if s.resourceID != podResourceID {
+			t.Errorf("X-Api-Resource-Id = %q, want %q", s.resourceID, podResourceID)
 		}
 		if s.requestID == "" || s.connectID == "" {
 			t.Errorf("X-Api-Request-Id/Connect-Id 缺失: %q/%q", s.requestID, s.connectID)

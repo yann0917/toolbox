@@ -23,6 +23,8 @@ const (
 	podWSPath = "/api/v3/sami/podcasttts"
 	// podAppKey 播客 v3 协议族固定 App Key（官方文档指定值，与账号无关）。
 	podAppKey = "aGjiRDfUWi"
+	// podResourceID 播客服务资源 ID（官方文档 Request Headers 必填项）。
+	podResourceID = "volc.service_type.10050"
 	// podReadTimeout 每次读帧前设置的超时：单轮对话合成可能耗时数分钟。
 	podReadTimeout = 5 * time.Minute
 	// podWriteTimeout 每次写帧前设置的超时。
@@ -158,6 +160,7 @@ func (c *PodcastClient) generateOnce(ctx context.Context, req PodcastRequest, ta
 	headers.Set("X-Api-App-Id", c.cred.AppID)
 	headers.Set("X-Api-Access-Key", c.cred.AccessToken)
 	headers.Set("X-Api-App-Key", podAppKey)
+	headers.Set("X-Api-Resource-Id", podResourceID)
 	headers.Set("X-Api-Request-Id", taskID)
 	headers.Set("X-Api-Connect-Id", uuid.NewString()) // 每次连接尝试独立
 
