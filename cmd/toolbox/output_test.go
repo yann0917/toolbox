@@ -16,6 +16,9 @@ func TestExitCodeFor(t *testing.T) {
 	}{
 		{nil, 0},
 		{fmt.Errorf("缺少必填参数: text"), 2},
+		{fmt.Errorf("speakers 需要恰好 2 个音色 ID（逗号分隔，toolbox voices list 查询）"), 2},
+		{fmt.Errorf("对话稿格式错误：第 1 轮缺少 speaker 或 text"), 2},
+		{fmt.Errorf("播客输入只能提供其一（文本/网页/对话稿）"), 2},
 		{fmt.Errorf("%w: xxx", volcengine.ErrNoCred), 4},
 		{fmt.Errorf("%w: bad token", volcengine.ErrAuth), 4},
 		{errors.New("火山 TTS 错误 内容审核(50000)"), 3},
