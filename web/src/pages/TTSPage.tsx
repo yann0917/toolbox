@@ -241,9 +241,9 @@ export default function TTSPage() {
                     id={id}
                     value={text}
                     onChange={(e) => setText(e.target.value)}
-                    rows={14}
+                    rows={10}
                     placeholder="输入要合成的文本…"
-                    className="min-h-[260px]"
+                    className="min-h-[220px] max-h-[46vh]"
                     {...rest}
                   />
                 )}
