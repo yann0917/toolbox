@@ -1,61 +1,154 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Captions,
+  Download,
+  FileAudio,
+  FileText,
+  Link2,
+  Mic,
+  RefreshCw,
+  SlidersHorizontal,
+  Upload,
+  X,
+} from "lucide-react";
 import { apiBase, fetchJSON } from "../lib/api";
-import TaskProgress from "../components/TaskProgress";
-import SegmentList, { type Segment } from "../components/SegmentList";
+import { formatTime, subscribeTime, usePlayer } from "../lib/player";
+import type { Artifact, TaskDetail, TaskStatus } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  PageHeader,
+  ProgressBar,
+  Skeleton,
+  StatusBadge,
+  Tabs,
+  WavePlayer,
+  useToast,
+} from "../ui";
 
-interface Task {
-  id: string;
-  status: string;
-  progress: number;
-  progress_note: string;
-  error?: string;
-  summary?: { segments?: Segment[] };
-}
-interface Artifact { id: string; kind: string; filename: string }
-
-// 音频格式白名单与后端 ASR Tool 一致（mp3/wav/ogg/pcm）。
+/** 音频格式白名单与后端 ASR Tool 一致（mp3/wav/ogg/pcm） */
 const ACCEPT = ".mp3,.wav,.ogg,.pcm";
+const ALLOWED_EXT = ["mp3", "wav", "ogg", "pcm"];
+
+type Mode = "upload" | "url";
+type Segment = { text: string; start_ms: number; end_ms: number };
+
+/** 任务运行态：只保留界面需要的字段，不伪造完整 Task DTO */
+interface Run {
+  status: TaskStatus;
+  progress: number;
+  note: string;
+  error?: string;
+}
+
+function formatSize(bytes: number): string {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 非音频产物行：图标 + 文件名 + 大小 + 下载 */
+function DownloadRow({ a }: { a: Artifact }) {
+  const Icon = a.kind === "subtitle" ? Captions : FileText;
+  return (
+    <a
+      href={`${apiBase}/api/artifacts/${a.id}/download`}
+      className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-line bg-raise-2 p-3 transition-colors duration-150 hover:border-line-strong"
+    >
+      <span className="shrink-0 text-muted">
+        <Icon size={16} strokeWidth={1.75} />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm text-fg">{a.filename}</span>
+      <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted">{formatSize(a.size)}</span>
+      <Download size={14} strokeWidth={1.75} className="shrink-0 text-muted" />
+    </a>
+  );
+}
 
 export default function ASRPage() {
-  // 跨工具联动：/asr?artifact=<id>（来自分离页「送 ASR识别」）→ 跳过输入区，
-  // 以 artifact_input 直接提交识别任务。
+  /* 跨工具联动：/asr?artifact=<id>（来自人声分离页「送 ASR识别」）→ 跳过输入区，
+     以 artifact_input 直接提交识别任务。 */
   const [searchParams] = useSearchParams();
   const artifactId = searchParams.get("artifact")?.trim() ?? "";
   const artifactMode = artifactId !== "";
-  const [mode, setMode] = useState<"upload" | "url">("upload");
+
+  const [mode, setMode] = useState<Mode>("upload");
   const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [url, setUrl] = useState("");
   const [language, setLanguage] = useState("zh-CN");
   const [hotwords, setHotwords] = useState("");
   const [taskId, setTaskId] = useState<string | null>(null);
-  const [task, setTask] = useState<Task | null>(null);
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [run, setRun] = useState<Run | null>(null);
+  const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [playSrc, setPlaySrc] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const [submitError, setSubmitError] = useState("");
+  const [fileError, setFileError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const blobRef = useRef<string | null>(null); // 上传回放的对象 URL（换任务时释放）
   const qc = useQueryClient();
+  const { toast } = useToast();
   const ev = useTaskEvents();
 
-  // WS 事件驱动当前任务进度；终态拉详情拿产物链接与 summary.segments
+  /* WS 事件驱动当前任务进度；终态拉详情拿产物与 summary.segments */
   useEffect(() => {
     if (!ev || !taskId || ev.task_id !== taskId) return;
-    if (ev.type === "progress") setTask((t) => ({ ...(t ?? { id: taskId, status: "running" } as Task), progress: ev.progress ?? 0, progress_note: ev.note ?? "" }));
-    if (ev.type === "done" || ev.type === "error" || ev.type === "canceled") {
-      fetchJSON<{ task: Task; artifacts: Artifact[] }>(`/api/tasks/${taskId}`)
-        .then((d) => {
-          setTask(d.task);
-          setArtifacts(d.artifacts);
-          setSegments(d.task.summary?.segments ?? []);
-        })
-        .catch(() => {});
+    if (ev.type === "progress") {
+      setRun({ status: "running", progress: ev.progress ?? 0, note: ev.note ?? "处理中" });
+      return;
     }
-  }, [ev, taskId]);
+    if (ev.type === "done" || ev.type === "error" || ev.type === "canceled") {
+      fetchJSON<TaskDetail>(`/api/tasks/${taskId}`)
+        .then((d) => {
+          setRun({
+            status: d.task.status,
+            progress: d.task.progress,
+            note: d.task.progress_note,
+            error: d.task.error,
+          });
+          setDetail(d);
+          setSegments(d.task.summary?.segments ?? []);
+          if (d.task.status === "failed") {
+            toast({ tone: "error", title: "识别失败", description: d.task.error || undefined });
+          }
+        })
+        .catch((e: Error) => {
+          setRun((r) => ({ status: "failed", progress: r?.progress ?? 0, note: "读取任务结果失败", error: e.message }));
+          toast({ tone: "error", title: "读取任务结果失败", description: e.message });
+        });
+    }
+  }, [ev, taskId, toast]);
 
-  const canSubmit = artifactMode || (mode === "upload" ? file != null : url.trim() !== "");
+  const artifacts = detail?.artifacts ?? [];
+  const downloads = artifacts.filter((a) => a.kind !== "audio");
+  const durationSec = detail?.task.summary?.duration_ms ? detail.task.summary.duration_ms / 1000 : undefined;
+
+  const playTitle = artifactMode
+    ? "人声轨（分离产物）"
+    : mode === "upload"
+      ? file?.name ?? "本地上传音频"
+      : "远程音频 URL";
+  const playSub = artifactMode
+    ? `产物 ${artifactId.slice(0, 8)}`
+    : mode === "upload"
+      ? file
+        ? formatSize(file.size)
+        : undefined
+      : url.trim() || undefined;
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -69,6 +162,7 @@ export default function ASRPage() {
         });
       }
       if (mode === "url") {
+        params.url = url.trim();
         return fetchJSON<{ task_id: string }>("/api/tasks", {
           method: "POST",
           body: JSON.stringify({ provider: "volcengine", tool: "asr", params }),
@@ -86,9 +180,10 @@ export default function ASRPage() {
     },
     onSuccess: (d) => {
       setTaskId(d.task_id);
-      setTask({ id: d.task_id, status: "pending", progress: 0, progress_note: "已提交" });
+      setRun({ status: "pending", progress: 0, note: "已提交" });
+      setDetail(null);
       setSegments([]);
-      setArtifacts([]);
+      setSubmitError("");
       if (artifactMode) {
         setPlaySrc(`${apiBase}/api/artifacts/${artifactId}/stream`);
       } else if (mode === "upload" && file) {
@@ -98,95 +193,402 @@ export default function ASRPage() {
       } else {
         setPlaySrc(url.trim());
       }
-      qc.invalidateQueries({ queryKey: ["tasks"] });
+      void qc.invalidateQueries({ queryKey: ["tasks"] });
     },
-    onError: (e: Error) => alert(e.message),
+    onError: (e: Error) => {
+      setSubmitError(e.message);
+      toast({ tone: "error", title: "提交失败", description: e.message });
+    },
   });
 
-  // 点击句子 → 回放跳转到该句起始时间并继续播放
-  const seek = (ms: number) => {
-    const a = audioRef.current;
-    if (!a) return;
-    a.currentTime = ms / 1000;
-    a.play().catch(() => {});
+  /* 分句高亮：跟随全局播放通道的时间推进（rAF 通道，不触发 60fps 重渲染），
+     仅当当前句变化时才 setState。 */
+  useEffect(() => {
+    if (segments.length === 0) return;
+    const unsub = subscribeTime((t) => {
+      if (usePlayer.getState().track?.src !== playSrc) {
+        setActiveIdx((prev) => (prev === -1 ? prev : -1));
+        return;
+      }
+      const ms = t * 1000;
+      let idx = -1;
+      for (let i = 0; i < segments.length; i++) {
+        if (ms >= segments[i].start_ms && ms < segments[i].end_ms) {
+          idx = i;
+          break;
+        }
+      }
+      setActiveIdx((prev) => (prev === idx ? prev : idx));
+    });
+    return () => {
+      unsub();
+    };
+  }, [segments, playSrc]);
+
+  // 点击句子 → 回放跳转到该句起始时间；若当前播放的不是本任务的音频，先切过去
+  const seekTo = (ms: number) => {
+    if (!playSrc) return;
+    const st = usePlayer.getState();
+    if (st.track?.src !== playSrc) st.play({ id: playSrc, src: playSrc, title: playTitle, sub: playSub }, true);
+    st.seek(ms / 1000);
   };
 
-  const downloads = artifacts.filter((a) => a.kind === "transcript" || a.kind === "subtitle");
+  const pickFile = (f: File) => {
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!ALLOWED_EXT.includes(ext)) {
+      setFileError(`不支持的格式 .${ext || "未知"}：仅支持 mp3 / wav / ogg / pcm`);
+      return;
+    }
+    setFileError("");
+    setFile(f);
+  };
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) pickFile(f);
+  };
+
+  const canSubmit = artifactMode || (mode === "upload" ? file != null : url.trim() !== "");
+  const isCurrentTrack = usePlayer((s) => s.track?.src === playSrc && playSrc !== null);
+  // 只有当前播放的正是本任务的音频、且分句非空时，才标记「当前句」
+  const shownActive = isCurrentTrack && segments.length > 0 ? activeIdx : -1;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <h1 className="text-xl font-semibold">语音识别</h1>
-      {artifactMode ? (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
-          <p className="text-sm">
-            将使用人声分离任务的音轨直接识别（产物 <span className="text-[var(--accent)]">{artifactId.slice(0, 8)}</span>）
-          </p>
-          <button
-            disabled={submit.isPending}
-            onClick={() => submit.mutate()}
-            className="px-5 py-2 rounded-lg bg-[var(--accent)] text-[var(--accent-fg)] text-sm font-medium disabled:opacity-40"
+    <>
+      <PageHeader
+        title="语音识别"
+        description="音频转文字，输出分句时间戳与 SRT 字幕"
+        actions={
+          <Link
+            to="/history"
+            className="inline-flex items-center gap-1 text-xs text-fg-2 transition-colors duration-150 hover:text-accent"
           >
-            {submit.isPending ? "提交中…" : "开始识别"}
-          </button>
-        </div>
-      ) : (
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
-        <div className="flex gap-2 text-sm">
-          {(["upload", "url"] as const).map((m) => (
-            <button key={m}
-              onClick={() => setMode(m)}
-              className={`px-4 py-1.5 rounded-lg border transition-colors ${
-                mode === m
-                  ? "bg-[var(--accent)] text-[var(--accent-fg)] border-[var(--accent)]"
-                  : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)]"
-              }`}
-            >
-              {m === "upload" ? "本地上传" : "音频 URL"}
-            </button>
-          ))}
-        </div>
-        {mode === "upload" ? (
-          <input type="file" accept={ACCEPT}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-[var(--surface-hover)] file:text-[var(--fg)]" />
-        ) : (
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="公网音频 URL…"
-            className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] p-3 text-sm focus:outline-none focus:border-[var(--accent)]" />
-        )}
-        <div className="flex items-center gap-3 text-sm">
-          <label className="text-[var(--muted)]">语言</label>
-          <input value={language} onChange={(e) => setLanguage(e.target.value)}
-            className="flex-1 rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2" />
-          <label className="text-[var(--muted)]">热词</label>
-          <input value={hotwords} onChange={(e) => setHotwords(e.target.value)} placeholder="可选，逗号分隔"
-            className="flex-1 rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2" />
-        </div>
-        <button
-          disabled={!canSubmit || submit.isPending}
-          onClick={() => submit.mutate()}
-          className="px-5 py-2 rounded-lg bg-[var(--accent)] text-[var(--accent-fg)] text-sm font-medium disabled:opacity-40"
-        >
-          {submit.isPending ? "提交中…" : "开始识别"}
-        </button>
+            历史产物
+            <ArrowUpRight size={13} strokeWidth={1.75} />
+          </Link>
+        }
+      />
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        {/* 左：音频输入（artifact 联动时为来源横幅） */}
+        <Card className="min-w-0">
+          <CardHeader
+            title={artifactMode ? "输入来源" : "音频输入"}
+            icon={<FileAudio size={15} strokeWidth={1.75} />}
+            aside={<span className="micro">{artifactMode ? "artifact_input" : mode === "upload" ? "本地文件" : "公网 URL"}</span>}
+          />
+          <CardBody className="space-y-4">
+            {artifactMode ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-sm)] border border-line bg-raise-2 p-3">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-line text-accent">
+                    <FileAudio size={14} strokeWidth={1.75} />
+                  </span>
+                  <span className="min-w-0 flex-1 text-xs text-fg-2">
+                    使用人声分离产物{" "}
+                    <span className="font-mono text-accent">{artifactId.slice(0, 8)}</span> 直接识别，无需再上传
+                  </span>
+                  <Link
+                    to="/asr"
+                    className="shrink-0 text-xs text-fg-2 transition-colors duration-150 hover:text-accent"
+                  >
+                    改用其他音频
+                  </Link>
+                </div>
+                <p className="text-[11px] text-muted">
+                  提交时以 artifact_input 通道传入该产物，提交后可在下方试听源音轨。
+                </p>
+              </div>
+            ) : (
+              <>
+                <Tabs<Mode>
+                  items={[
+                    { value: "upload", label: "本地上传", icon: <Upload size={13} strokeWidth={1.75} /> },
+                    { value: "url", label: "音频 URL", icon: <Link2 size={13} strokeWidth={1.75} /> },
+                  ]}
+                  value={mode}
+                  onChange={(m) => {
+                    setMode(m);
+                    setFileError("");
+                  }}
+                />
+
+                {mode === "upload" ? (
+                  <div className="space-y-2">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-label="选择或拖入音频文件"
+                      onClick={() => fileInputRef.current?.click()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          fileInputRef.current?.click();
+                        }
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragging(true);
+                      }}
+                      onDragLeave={() => setDragging(false)}
+                      onDrop={onDrop}
+                      className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius-md)] border border-dashed px-4 py-8 text-center transition-colors duration-150 ${
+                        dragging ? "border-accent bg-raise-2" : "border-line-strong bg-raise-2/40 hover:border-accent"
+                      }`}
+                    >
+                      <span className={`flex size-9 items-center justify-center rounded-full border border-line bg-raise ${dragging ? "text-accent" : "text-muted"}`}>
+                        <Upload size={16} strokeWidth={1.75} />
+                      </span>
+                      {file ? (
+                        <>
+                          <p className="max-w-full truncate text-sm text-fg">{file.name}</p>
+                          <p className="font-mono text-[11px] tabular-nums text-muted">{formatSize(file.size)}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm text-fg-2">拖拽音频到此处，或点击选择文件</p>
+                          <p className="text-[11px] text-muted">支持 mp3 / wav / ogg / pcm</p>
+                        </>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept={ACCEPT}
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) pickFile(f);
+                          e.target.value = "";
+                        }}
+                      />
+                    </div>
+                    {file && (
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted">{file.name}</span>
+                        <IconButton
+                          label="清除已选文件"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFile(null);
+                            setFileError("");
+                          }}
+                        >
+                          <X size={14} strokeWidth={1.75} />
+                        </IconButton>
+                      </div>
+                    )}
+                    {fileError && (
+                      <p className="flex items-start gap-1.5 text-[11px] text-danger">
+                        <AlertTriangle size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+                        {fileError}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <Field label="音频 URL" hint="需公网可访问的 mp3 / wav / ogg / pcm 音频地址">
+                    {({ id, ...rest }) => (
+                      <Input
+                        id={id}
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        placeholder="https://example.com/audio.mp3"
+                        {...rest}
+                      />
+                    )}
+                  </Field>
+                )}
+              </>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* 右：参数面板 */}
+        <Card className="lg:sticky lg:top-4 lg:self-start">
+          <CardHeader
+            title="识别参数"
+            icon={<SlidersHorizontal size={15} strokeWidth={1.75} />}
+            aside={<span className="micro">volcengine · asr</span>}
+          />
+          <CardBody className="space-y-4">
+            <Field label="语言" hint="默认 zh-CN">
+              {({ id, ...rest }) => (
+                <Input
+                  id={id}
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  placeholder="zh-CN"
+                  {...rest}
+                />
+              )}
+            </Field>
+            <Field label="热词" aside="可选" hint="逗号分隔，用于提升专有名词识别率">
+              {({ id, ...rest }) => (
+                <Input
+                  id={id}
+                  value={hotwords}
+                  onChange={(e) => setHotwords(e.target.value)}
+                  placeholder="火山引擎,语音合成"
+                  {...rest}
+                />
+              )}
+            </Field>
+
+            <div className="border-t border-line pt-3">
+              <Button
+                variant="primary"
+                className="w-full"
+                icon={<Mic size={15} strokeWidth={1.75} />}
+                loading={submit.isPending}
+                disabled={!canSubmit}
+                onClick={() => submit.mutate()}
+              >
+                开始识别
+              </Button>
+              {!canSubmit && (
+                <p className="mt-2 text-[11px] text-muted">
+                  {mode === "upload" ? "请先选择音频文件" : "请先填写音频 URL"}
+                </p>
+              )}
+              {submitError && (
+                <p className="mt-2 flex items-start gap-1.5 text-[11px] text-danger">
+                  <AlertTriangle size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+                  {submitError}
+                </p>
+              )}
+            </div>
+          </CardBody>
+        </Card>
       </div>
-      )}
-      {task && <TaskProgress task={task} />}
-      {playSrc && <audio ref={audioRef} controls src={playSrc} className="w-full" />}
-      {segments.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-sm font-medium text-[var(--muted)]">识别结果（点击句子跳播）</h2>
-          <SegmentList segments={segments} onSeek={seek} />
-        </div>
-      )}
+
+      {/* 结果区 */}
+      <Card className="mt-4">
+        <CardHeader
+          title="识别结果"
+          icon={<FileText size={15} strokeWidth={1.75} />}
+          aside={
+            run ? (
+              <StatusBadge status={run.status} />
+            ) : segments.length > 0 ? (
+              <span className="font-mono text-[11px] tabular-nums text-muted">{segments.length} 句</span>
+            ) : undefined
+          }
+        />
+
+        {!run ? (
+          <EmptyState
+            icon={<Mic size={18} strokeWidth={1.75} />}
+            title="还没有识别结果"
+            description="上传本地音频或填写音频 URL 后开始识别，分句时间戳与字幕会显示在这里。"
+            action={
+              artifactMode ? (
+                <Button variant="primary" size="sm" loading={submit.isPending} onClick={() => submit.mutate()}>
+                  开始识别该音轨
+                </Button>
+              ) : (
+                <Button variant="secondary" size="sm" icon={<Upload size={13} strokeWidth={1.75} />} onClick={() => fileInputRef.current?.click()}>
+                  选择音频文件
+                </Button>
+              )
+            }
+          />
+        ) : run.status === "failed" ? (
+          <CardBody className="space-y-3">
+            <p className="flex items-start gap-2 text-sm text-danger">
+              <AlertTriangle size={15} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+              <span className="min-w-0 break-words">{run.error || "任务失败，请重试"}</span>
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                loading={submit.isPending}
+                onClick={() => submit.mutate()}
+              >
+                重试
+              </Button>
+              <span className="font-mono text-[11px] text-muted">{taskId?.slice(0, 8)}</span>
+            </div>
+          </CardBody>
+        ) : (
+          <CardBody className="space-y-3">
+            {playSrc && (
+              <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-line bg-raise-2 p-3">
+                <span className="w-14 shrink-0 text-xs text-fg-2">音频源</span>
+                <WavePlayer
+                  src={playSrc}
+                  title={playTitle}
+                  sub={playSub}
+                  durationSec={durationSec}
+                  className="min-w-0 flex-1"
+                />
+              </div>
+            )}
+
+            {run.status !== "succeeded" ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-muted">{run.note || "处理中"}</span>
+                  <span className="font-mono text-[11px] tabular-nums text-muted">{run.progress}%</span>
+                </div>
+                <ProgressBar value={run.progress} active={run.status === "running" || run.status === "pending"} />
+                {[0, 1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-9 w-full" />
+                ))}
+              </div>
+            ) : segments.length > 0 ? (
+              <div className="overflow-hidden rounded-[var(--radius-sm)] border border-line">
+                <ul className="max-h-96 divide-y divide-line overflow-y-auto">
+                  {segments.map((seg, i) => (
+                    <li key={i}>
+                      <button
+                        type="button"
+                        onClick={() => seekTo(seg.start_ms)}
+                        aria-current={shownActive === i ? "true" : undefined}
+                        className={`flex w-full cursor-pointer items-baseline gap-3 border-l-2 px-4 py-2.5 text-left transition-colors duration-150 ${
+                          shownActive === i
+                            ? "border-accent bg-raise-2"
+                            : "border-transparent hover:bg-raise-2"
+                        }`}
+                      >
+                        <span
+                          className={`shrink-0 font-mono text-[11px] tabular-nums ${
+                            shownActive === i ? "text-accent" : "text-muted"
+                          }`}
+                        >
+                          [{formatTime(seg.start_ms / 1000)}]
+                        </span>
+                        <span className="min-w-0 flex-1 text-sm leading-relaxed">{seg.text}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="py-2 text-xs text-muted">未识别到分句内容，可直接下载转写文本查看。</p>
+            )}
+          </CardBody>
+        )}
+      </Card>
+
+      {/* 产物下载：非音频产物行式列出 */}
       {downloads.length > 0 && (
-        <div className="flex flex-wrap gap-4">
-          {downloads.map((a) => (
-            <a key={a.id} href={`${apiBase}/api/artifacts/${a.id}/download`} className="text-sm text-[var(--accent)]">
-              下载 {a.filename}
-            </a>
-          ))}
-        </div>
+        <Card className="mt-4">
+          <CardHeader
+            title="产物"
+            icon={<Download size={15} strokeWidth={1.75} />}
+            aside={<span className="font-mono text-[11px] tabular-nums text-muted">{downloads.length} 个文件</span>}
+          />
+          <CardBody className="space-y-2">
+            {downloads.map((a) => (
+              <DownloadRow key={a.id} a={a} />
+            ))}
+          </CardBody>
+        </Card>
       )}
-    </div>
+    </>
   );
 }
