@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,6 +20,8 @@ func (s *Server) Handler() http.Handler {
 	{
 		api.GET("/health", func(c *gin.Context) { ok(c, gin.H{"status": "ok"}) })
 		api.GET("/tools", s.listTools)
+		api.POST("/uploads", s.uploadFile)
+		api.GET("/uploads/:id/stream", s.streamUpload)
 		api.POST("/tasks", s.createTask)
 		api.GET("/tasks", s.listTasks)
 		api.GET("/tasks/:id", s.getTask)
@@ -48,6 +51,7 @@ type createTaskReq struct {
 	Provider string         `json:"provider"`
 	Tool     string         `json:"tool"`
 	Params   map[string]any `json:"params"`
+	FileIDs  []string       `json:"file_ids"` // /api/uploads 返回的上传文件 id
 }
 
 func (s *Server) createTask(c *gin.Context) {
@@ -62,7 +66,21 @@ func (s *Server) createTask(c *gin.Context) {
 		req.Params = map[string]any{}
 	}
 	delete(req.Params, "_out")
-	id, err := s.svc.Engine().Submit(req.Provider, req.Tool, req.Params, nil)
+	// file_ids → 上传文件绝对路径（key 固定 "audio"），交给 Engine 走本地文件通道。
+	var files map[string]string
+	if len(req.FileIDs) > 0 {
+		f, err := fileIDsToFiles(s.svc.Config().DataDir, req.FileIDs)
+		if err != nil {
+			if errors.Is(err, errInvalidFileID) {
+				fail(c, CodeBadRequest, err.Error())
+			} else {
+				fail(c, CodeNotFound, err.Error())
+			}
+			return
+		}
+		files = f
+	}
+	id, err := s.svc.Engine().Submit(req.Provider, req.Tool, req.Params, files)
 	if err != nil {
 		failErr(c, err)
 		return
