@@ -25,15 +25,25 @@ func (s *Server) uploadsDir() string {
 
 // uploadFile 处理 POST /api/uploads：multipart 字段 file 落盘为
 // <dataDir>/uploads/<uuid><ext>，返回 {file_id}（即 uuid，不含扩展名）。
-// 上传端不做格式限制（格式合法性由 Tool 侧报错），仅限制大小。
+// 上传端不做格式限制（格式合法性由 Tool 侧报错），仅限制大小与要求扩展名。
 func (s *Server) uploadFile(c *gin.Context) {
+	// 前置截断：MaxBytesReader 含 10MB multipart 编码开销余量，
+	// 超大请求体在 multipart 解析前即被拒绝，不再落临时文件。
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadBytes+10<<20)
 	fh, err := c.FormFile("file")
 	if err != nil {
-		fail(c, CodeBadRequest, "参数错误：缺少上传文件 file")
+		fail(c, CodeBadRequest, "上传失败: "+err.Error())
 		return
 	}
 	if fh.Size > maxUploadBytes {
 		fail(c, CodeBadRequest, "文件超过大小上限（500MB）")
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(fh.Filename))
+	if ext == "" {
+		// 无扩展名落盘为 <uuid>（无点），解析端 Glob "<uuid>.*" 永不匹配，
+		// file_id 必然不可用，直接拒绝（此分支在 MkdirAll 之前，不落盘）。
+		fail(c, CodeBadRequest, "文件缺少扩展名（用于识别格式判断），请上传带扩展名的音频文件")
 		return
 	}
 	dir := s.uploadsDir()
@@ -42,7 +52,6 @@ func (s *Server) uploadFile(c *gin.Context) {
 		return
 	}
 	id := uuid.NewString()
-	ext := strings.ToLower(filepath.Ext(fh.Filename))
 	dst := filepath.Join(dir, id+ext)
 	if err := c.SaveUploadedFile(fh, dst); err != nil {
 		failErr(c, err)
@@ -96,5 +105,8 @@ func (s *Server) streamUpload(c *gin.Context) {
 		return
 	}
 	c.Header("Accept-Ranges", "bytes")
+	// 同源直出二进制流的安全头：禁 MIME 嗅探 + 强制附件下载（XSS 防护面）。
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Disposition", "attachment; filename=\""+filepath.Base(abs)+"\"")
 	http.ServeFile(c.Writer, c.Request, abs)
 }

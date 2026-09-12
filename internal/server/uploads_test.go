@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -144,5 +146,55 @@ func TestUploadFileIDPathInjection(t *testing.T) {
 	}
 	if e.Data != nil {
 		t.Errorf("出错时 data 应为 nil: %v", e.Data)
+	}
+}
+
+// TestUploadNoExtension 无扩展名文件 → code 2（file_id 按 Glob "<uuid>.*" 解析，
+// 无扩展名落盘后必然解析不到），且 uploads 目录不产生新文件（不落盘）。
+func TestUploadNoExtension(t *testing.T) {
+	ts, s := newTestServer(t)
+	dir := s.uploadsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before, err := filepath.Glob(filepath.Join(dir, "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := uploadMultipart(t, ts.URL+"/api/uploads", "noext", "FAKE")
+	if e.Code != CodeBadRequest {
+		t.Fatalf("code = %d (%s), want %d", e.Code, e.Message, CodeBadRequest)
+	}
+	after, err := filepath.Glob(filepath.Join(dir, "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("uploads 文件数 %d → %d，拒绝时应不落盘", len(before), len(after))
+	}
+}
+
+// TestUploadStreamSecurityHeaders stream 响应必须携带 nosniff 与 attachment
+// Content-Disposition（同源直出二进制流的 XSS 防护面）。
+func TestUploadStreamSecurityHeaders(t *testing.T) {
+	ts, _ := newTestServer(t)
+	e := uploadMultipart(t, ts.URL+"/api/uploads", "a.wav", "FAKE")
+	if e.Code != 0 {
+		t.Fatalf("upload code = %d (%s)", e.Code, e.Message)
+	}
+	data, _ := e.Data.(map[string]any)
+	fileID, _ := data["file_id"].(string)
+
+	resp, err := http.Get(ts.URL + "/api/uploads/" + fileID + "/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	cd := resp.Header.Get("Content-Disposition")
+	if !strings.HasPrefix(cd, `attachment; filename="`) || !strings.HasSuffix(cd, `.wav"`) {
+		t.Fatalf("Content-Disposition = %q, want attachment; filename=\"<uuid>.wav\"", cd)
 	}
 }
