@@ -18,18 +18,18 @@ type aucRequest struct {
 }
 
 // newAUCMockServer 构造异步 ASR mock 服务：记录请求头与 body，按 respHeader/respBody 回复
-//（respBody 为 nil 时返回空 body，对应 submit 的成功响应）。
+// （respBody 为 nil 时返回空 body，对应 submit 的成功响应）。
 func newAUCMockServer(t *testing.T, respHeader map[string]string, respBody any, got *aucRequest) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got.path = r.URL.Path
 		got.headers = map[string]string{
-			"X-Api-Key":        r.Header.Get("X-Api-Key"),
-			"X-Api-App-Key":    r.Header.Get("X-Api-App-Key"),
-			"X-Api-Access-Key": r.Header.Get("X-Api-Access-Key"),
+			"X-Api-Key":         r.Header.Get("X-Api-Key"),
+			"X-Api-App-Key":     r.Header.Get("X-Api-App-Key"),
+			"X-Api-Access-Key":  r.Header.Get("X-Api-Access-Key"),
 			"X-Api-Resource-Id": r.Header.Get("X-Api-Resource-Id"),
-			"X-Api-Request-Id": r.Header.Get("X-Api-Request-Id"),
-			"X-Api-Sequence":   r.Header.Get("X-Api-Sequence"),
+			"X-Api-Request-Id":  r.Header.Get("X-Api-Request-Id"),
+			"X-Api-Sequence":    r.Header.Get("X-Api-Sequence"),
 		}
 		var m map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&m)
