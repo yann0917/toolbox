@@ -9,3 +9,4 @@ cmd/toolbox/webdist/*
 # 根目录裸构建二进制与 macOS 元数据
 /toolbox
 .DS_Store
+.agent/
