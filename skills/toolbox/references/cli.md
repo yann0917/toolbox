@@ -119,12 +119,16 @@ toolbox separate <url> [flags]
 
 | flag | 默认 | 说明 |
 |---|---|---|
-| `--scene` | `audio` | `audio` 通用音视频 / `drama` 影视剧 |
-| `--out-dir` | 数据目录 | 双轨输出目录（人声、背景音各一个文件） |
+| `--scene` | `audio` | `audio` 通用（人声+背景）/ `music` 音乐（人声+伴奏）/ `drama` 短剧、`narrate` 口播（人声+音乐+音效） |
+| `--format` | `mp3` | 音轨格式：`aac` / `mp3` / `wav` / `m4a` / `flac` |
+| `--out-dir` | 数据目录 | 音轨输出目录（传相对路径时按数据目录解析） |
 | `--json` | 关 | 机器可读输出 |
 
-- 输入必须为公网可访问的音视频 URL（本地文件请先自行上传到可访问的存储）。
-- 产物：两个 `audio` artifact，`summary` 中以 `voice` / `background` 标注对应 artifact id。
+- 输入必须为公网可访问的音视频 URL（MediaKit 不支持本地文件，本地文件请先自行上传到可访问的存储）；提交时按 URL 扩展名自动选择 `video_url` / `audio_url`。
+- 产物：Audio/Music 场景 2 个 `audio` artifact（voice/background），Drama/Narrate 场景 3 个（voice/music/sfx）；音轨以文件名区分：`<uuid>_<track>.<ext>`。
+- `summary` 结构：`scene`（分离场景）、`duration_s`（媒体时长秒）、`tracks`（音轨 kind 列表，与 artifacts 顺序一致）。
+- 分离为异步重计算任务：提交后自动轮询，单次最长等待 15 分钟（超时报任务失败，可重试）。
+- 凭证独立：需要 `volc.mediakit.api_key`（与语音三件套无关），缺失报凭证错误（退出码 4）。
 
 ## run 通用工具入口
 

@@ -15,14 +15,14 @@ description: 多媒体 AI 工具箱 CLI（toolbox），通过火山引擎提供�
 ## 调用规则
 
 - **始终加 `--json`**：stdout 只输出一个 JSON 结果对象（含产物路径、时长等），人类可读进度走 stderr。
-- **显式指定产物路径** `--out`，避免依赖默认数据目录。
+- **显式指定产物路径**：`--out`（separate 为 `--out-dir`），避免依赖默认数据目录。
 - 从 JSON 的 `artifacts[].path` / `artifacts[].kind` 读取产物（`audio` / `transcript` / `subtitle` / `dialog`）。
 - 退出码：`0` 成功；`2` 参数错误；`3` 任务失败（火山侧报错，stderr 有中文原因）；`4` 凭证缺失或无效。
 - 播客生成耗时数分钟（长文本更久），用后台方式执行并轮询进程退出；TTS 短文本秒级返回。
 
 ## 四个能力的最小用法
 
-> 当前构建提供 `tts` / `asr` / `podcast` / `config` / `voices` / `serve` 命令；`separate` / `run` 随后续里程碑交付，调用前先 `toolbox --help` 确认可用。
+> 当前构建提供 `tts` / `asr` / `podcast` / `separate` / `config` / `voices` / `serve` 命令；`run` 随后续里程碑交付，调用前先 `toolbox --help` 确认可用。
 
 ```bash
 # 文字转语音（返回 mp3 路径）
