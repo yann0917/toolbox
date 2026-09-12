@@ -17,6 +17,7 @@ type taskDTO struct {
 	Error     string          `json:"error,omitempty"`
 	CostMS    int64           `json:"cost_ms"`
 	Params    json.RawMessage `json:"params"`
+	Summary   json.RawMessage `json:"summary,omitempty"` // 任务完成摘要 JSON（ASR segments 等）
 	CreatedAt string          `json:"created_at"`
 }
 
@@ -34,7 +35,8 @@ func toTaskDTO(t store.Task) taskDTO {
 	return taskDTO{
 		ID: t.ID, Provider: t.Provider, Tool: t.Tool, Status: string(t.Status),
 		Progress: t.Progress, Note: t.ProgressNote, Error: t.Error,
-		CostMS: t.CostMS, Params: json.RawMessage(t.Params), CreatedAt: t.CreatedAt.Format("2006-01-02 15:04:05"),
+		CostMS: t.CostMS, Params: json.RawMessage(t.Params), Summary: json.RawMessage(t.Summary),
+		CreatedAt: t.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 }
 

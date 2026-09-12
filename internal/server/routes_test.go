@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/yann0917/toolbox/internal/service"
+	"github.com/yann0917/toolbox/internal/store"
 )
 
 // envelope 由 apierr.go 提供，测试直接复用生产包络类型。
@@ -116,6 +117,53 @@ func TestErrorEnvelope(t *testing.T) {
 	_ = json.NewDecoder(resp2.Body).Decode(&e2)
 	if resp2.StatusCode != 200 || e2.Code != 6 {
 		t.Errorf("status=%d code=%d", resp2.StatusCode, e2.Code)
+	}
+}
+
+// TestTaskDetailSummaryExposed 详情 DTO 应透出任务 summary JSON（ASR segments 所在），
+// 空 summary 的任务不得出现 summary 键（omitempty）。
+func TestTaskDetailSummaryExposed(t *testing.T) {
+	ts, s := newTestServer(t)
+	summary := `{"segments":[{"text":"你好","start_ms":0,"end_ms":900}],"duration_ms":900,"source":"file"}`
+	if err := s.svc.DB().CreateTask(&store.Task{
+		ID: "t-sum", Provider: "volcengine", Tool: "asr", Status: store.StatusSucceeded,
+		Params: `{}`, Summary: summary,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.svc.DB().CreateTask(&store.Task{
+		ID: "t-nosum", Provider: "volcengine", Tool: "tts", Status: store.StatusFailed, Params: `{}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := getEnvelope(t, ts.URL+"/api/tasks/t-sum")
+	data, _ := e.Data.(map[string]any)
+	task, _ := data["task"].(map[string]any)
+	if task == nil {
+		t.Fatalf("data = %v", e.Data)
+	}
+	sum, ok := task["summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("task.summary 应为 JSON 对象: %v", task["summary"])
+	}
+	segs, _ := sum["segments"].([]any)
+	if len(segs) != 1 {
+		t.Fatalf("summary.segments = %v, want 1 条", sum["segments"])
+	}
+	seg0, _ := segs[0].(map[string]any)
+	if seg0["text"] != "你好" || seg0["start_ms"].(float64) != 0 || seg0["end_ms"].(float64) != 900 {
+		t.Errorf("segments[0] = %v", seg0)
+	}
+
+	e2 := getEnvelope(t, ts.URL+"/api/tasks/t-nosum")
+	data2, _ := e2.Data.(map[string]any)
+	task2, _ := data2["task"].(map[string]any)
+	if task2 == nil {
+		t.Fatalf("data = %v", e2.Data)
+	}
+	if _, exists := task2["summary"]; exists {
+		t.Errorf("空 summary 不应出现 summary 键: %v", task2)
 	}
 }
 
