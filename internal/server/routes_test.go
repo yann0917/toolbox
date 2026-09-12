@@ -241,6 +241,79 @@ func TestCreateTaskStripsOutParam(t *testing.T) {
 	}
 }
 
+// TestCreateTaskWithArtifactInput 跨工具联动：已有产物（如分离任务的人声轨）作为新任务输入。
+// 手工造产物记录（db.CreateArtifact 指向 data 目录内真实文件）→ createTask 带 artifact_input
+// → 任务创建成功。测试环境无凭证：任务最终 failed 不影响「创建成功」断言。
+func TestCreateTaskWithArtifactInput(t *testing.T) {
+	ts, s := newTestServer(t)
+	dataDir := s.svc.Config().DataDir
+	rel := filepath.Join("sep-test", "voice.mp3")
+	if err := os.MkdirAll(filepath.Join(dataDir, filepath.Dir(rel)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, rel), []byte("fake-audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.svc.DB().CreateArtifact(&store.Artifact{
+		ID: "art-voice", TaskID: "t-src", Kind: "audio", Path: rel,
+		Filename: "voice.mp3", Format: "mp3",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"provider":"volcengine","tool":"asr","params":{"srt":true},"artifact_input":"art-voice"}`
+	resp, err := http.Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var created envelope
+	_ = json.NewDecoder(resp.Body).Decode(&created)
+	if created.Code != 0 {
+		t.Fatalf("submit code = %d (%s)", created.Code, created.Message)
+	}
+	createdData, _ := created.Data.(map[string]any)
+	if id, _ := createdData["task_id"].(string); id == "" {
+		t.Errorf("created = %v", created)
+	}
+}
+
+// TestCreateTaskArtifactInputConflict artifact_input 与 file_ids 互斥：同传 → code 2，
+// 且在产物存在性校验之前拒绝（不必存在真实产物）。
+func TestCreateTaskArtifactInputConflict(t *testing.T) {
+	ts, _ := newTestServer(t)
+	body := `{"provider":"volcengine","tool":"asr","params":{"srt":true},"artifact_input":"art-x","file_ids":["f-1"]}`
+	resp, err := http.Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var e envelope
+	_ = json.NewDecoder(resp.Body).Decode(&e)
+	if resp.StatusCode != 200 || e.Code != 2 {
+		t.Errorf("status=%d code=%d message=%s", resp.StatusCode, e.Code, e.Message)
+	}
+	if !strings.Contains(e.Message, "只能提供其一") {
+		t.Errorf("message 应说明互斥原因，got %q", e.Message)
+	}
+}
+
+// TestCreateTaskArtifactNotFound artifact_input 指向不存在的产物 → code 6。
+func TestCreateTaskArtifactNotFound(t *testing.T) {
+	ts, _ := newTestServer(t)
+	body := `{"provider":"volcengine","tool":"asr","params":{"srt":true},"artifact_input":"no-such-artifact"}`
+	resp, err := http.Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var e envelope
+	_ = json.NewDecoder(resp.Body).Decode(&e)
+	if resp.StatusCode != 200 || e.Code != 6 {
+		t.Errorf("status=%d code=%d message=%s", resp.StatusCode, e.Code, e.Message)
+	}
+}
+
 // TestArtifactAbsPathJail 验证产物路径封闭在 data 目录内（Task 9 安全修复）。
 func TestArtifactAbsPathJail(t *testing.T) {
 	svc, err := service.NewWithHome(t.TempDir())

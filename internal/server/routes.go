@@ -48,10 +48,11 @@ func (s *Server) listTools(c *gin.Context) {
 }
 
 type createTaskReq struct {
-	Provider string         `json:"provider"`
-	Tool     string         `json:"tool"`
-	Params   map[string]any `json:"params"`
-	FileIDs  []string       `json:"file_ids"` // /api/uploads 返回的上传文件 id
+	Provider      string         `json:"provider"`
+	Tool          string         `json:"tool"`
+	Params        map[string]any `json:"params"`
+	FileIDs       []string       `json:"file_ids"`       // /api/uploads 返回的上传文件 id
+	ArtifactInput string         `json:"artifact_input"` // 已有产物 id（跨工具联动：如分离人声轨送 ASR）
 }
 
 func (s *Server) createTask(c *gin.Context) {
@@ -66,9 +67,30 @@ func (s *Server) createTask(c *gin.Context) {
 		req.Params = map[string]any{}
 	}
 	delete(req.Params, "_out")
-	// file_ids → 上传文件绝对路径（key 固定 "audio"），交给 Engine 走本地文件通道。
+	// artifact_input → 已有产物输入（跨工具联动）：与 file_ids 互斥，产物文件须真实存在
+	//（artifactAbsPath 已做 IsAbs/jail 防御）。key 固定 "audio" 交给 Engine 走本地文件通道。
 	var files map[string]string
-	if len(req.FileIDs) > 0 {
+	if req.ArtifactInput != "" {
+		if len(req.FileIDs) > 0 {
+			fail(c, CodeBadRequest, "artifact_input 与 file_ids 只能提供其一")
+			return
+		}
+		a, err := s.svc.DB().GetArtifact(req.ArtifactInput)
+		if err == store.ErrNotFound {
+			fail(c, CodeNotFound, "产物不存在")
+			return
+		} else if err != nil {
+			failErr(c, err)
+			return
+		}
+		abs, err := s.artifactAbsPath(a.Path)
+		if err != nil {
+			fail(c, CodeNotFound, "产物文件缺失")
+			return
+		}
+		files = map[string]string{"audio": abs}
+	} else if len(req.FileIDs) > 0 {
+		// file_ids → 上传文件绝对路径（key 固定 "audio"），交给 Engine 走本地文件通道。
 		f, err := fileIDsToFiles(s.svc.Config().DataDir, req.FileIDs)
 		if err != nil {
 			if errors.Is(err, errInvalidFileID) {
