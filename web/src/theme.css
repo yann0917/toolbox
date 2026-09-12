@@ -1,31 +1,235 @@
 @import "tailwindcss";
 
+/* ============================================================
+   toolbox 设计令牌
+   源文件：design-system/toolbox/MASTER.md —— 改这里前先改那里
+   暗色为默认（:root），亮色为覆盖（:root.light）
+   ============================================================ */
+
+@theme inline {
+  /* 表面层级：画布 → 面板 → 卡片 → 内嵌槽 */
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-raise: var(--raise);
+  --color-raise-2: var(--raise-2);
+
+  /* 发丝分隔与边框 */
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  /* 文本层级 */
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-muted: var(--muted);
+
+  /* 信号色：琥珀=操作，绿=电平/成功，红=错误，黄=警示 */
+  --color-accent: var(--accent);
+  --color-accent-hi: var(--accent-hi);
+  --color-accent-ink: var(--accent-ink);
+  --color-meter: var(--meter);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+
+  /* 字体：Fira 覆盖拉丁与数字，中文逐字形回退——顺序不可改 */
+  --font-sans: "Fira Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 圆角 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* 阴影：暗底靠内发光 + 深投影造层次，不用大黑影 */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-2: 0 8px 24px -8px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-3: 0 24px 48px -12px rgba(0, 0, 0, 0.7);
+
+  /* 动效 */
+  --ease-out-quint: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ---------------- 暗色（默认） ---------------- */
 :root {
-  --bg: #0a0a0b;
-  --surface: #131316;
-  --surface-hover: #1a1a1f;
-  --border: rgba(255, 255, 255, 0.08);
-  --fg: #ededf0;
-  --muted: #8a8a93;
-  --accent: #22d3ee;
-  --accent-fg: #06181c;
-  --danger: #f87171;
-  --ok: #34d399;
-  --warn: #fbbf24;
+  --bg: #0a0a0c;
+  --panel: #0f0f12;
+  --raise: #141418;
+  --raise-2: #1b1b20;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --fg: #ededef;
+  --fg-2: #a6a6ae;
+  --muted: #6c6c76;
+  --accent: #ff8a3d;
+  --accent-hi: #ffa566;
+  --accent-ink: #1a0e04;
+  --meter: #45d483;
+  --warn: #f5b942;
+  --danger: #ff6b6b;
+  color-scheme: dark;
 }
+
+/* ---------------- 亮色（完整适配） ---------------- */
 :root.light {
-  --bg: #f7f7f8;
-  --surface: #ffffff;
-  --surface-hover: #f0f0f2;
-  --border: rgba(0, 0, 0, 0.09);
-  --fg: #17171a;
-  --muted: #6b6b74;
-  --accent: #0891b2;
-  --accent-fg: #ffffff;
+  --bg: #f6f6f7;
+  --panel: #ffffff;
+  --raise: #ffffff;
+  --raise-2: #f1f1f3;
+  --line: rgba(0, 0, 0, 0.1);
+  --line-strong: rgba(0, 0, 0, 0.16);
+  --fg: #14141a;
+  --fg-2: #4a4a55;
+  --muted: #6e6e7a;
+  --accent: #d9600f;
+  --accent-hi: #b94f0a;
+  --accent-ink: #ffffff;
+  --meter: #15803d;
+  --warn: #b45309;
+  --danger: #dc2626;
+  color-scheme: light;
 }
-body {
-  background: var(--bg);
-  color: var(--fg);
-  font-family: Inter, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-variant-numeric: tabular-nums;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans, "Fira Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 数字一律表格对齐——时间码、时长、耗时、计数 */
+  code,
+  kbd,
+  samp,
+  pre,
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 焦点环：全局统一，不可移除 */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 30%, transparent);
+    color: var(--fg);
+  }
+
+  /* 细滚动条：与面板同色系，hover 才显形 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+    background-clip: content-box;
+  }
+
+  /* 尊重系统减弱动效偏好 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* 刻印微标签：字段名、区块标题、表头 —— 设备面板的核心视觉语言 */
+  .micro {
+    font-size: 11px;
+    line-height: 1.2;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  /* 信号色点：任务运行中的呼吸指示（唯一允许的无限动画） */
+  .signal-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .signal-dot-pulse {
+    animation: signal-pulse 1.6s var(--ease-out-quint, cubic-bezier(0.2, 0.8, 0.2, 1)) infinite;
+  }
+  @keyframes signal-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 45%, transparent);
+    }
+    50% {
+      opacity: 0.55;
+      box-shadow: 0 0 0 4px color-mix(in oklab, currentColor 0%, transparent);
+    }
+  }
+
+  /* 进度条流光：仅在运行中叠加 */
+  .sheen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--fg) 22%, transparent),
+      transparent
+    );
+    animation: sheen 1.4s linear infinite;
+  }
+  @keyframes sheen {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  /* 首屏分段浮现：面板级内容入场 */
+  .rise {
+    animation: rise 320ms var(--ease-out-quint, cubic-bezier(0.2, 0.8, 0.2, 1)) both;
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
