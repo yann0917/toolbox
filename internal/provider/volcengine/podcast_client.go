@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -83,17 +84,24 @@ func NewPodcastClientWithURL(cred SpeechCred, wsBaseURL string) *PodcastClient {
 
 // podAccum 跨连接尝试累积的生成状态（断点续传不重置已收到的音频与轮次）。
 type podAccum struct {
-	audio             *bytes.Buffer
-	rounds            []PodcastRound
-	usage             map[string]int64
-	audioURL          string
-	lastFinishedRound int // 最近一次 362 对应的轮次 ID（round_id=-1 的开头音乐不计）；0 表示尚无完成轮次
+	audio              *bytes.Buffer
+	roundStartAudioLen int // 最近一轮 360 到来时的音频长度：续传重发该轮时据此截断已收的不完整分片
+	rounds             []PodcastRound
+	usage              map[string]int64
+	audioURL           string
+	lastFinishedRound  int // 最近一次 362 对应的轮次 ID（round_id=-1 的开头音乐不计）；0 表示尚无完成轮次
 }
+
+// podFatalError 不可续传的致命错误（服务端错误帧等）：重连同参数注定失败，Generate 遇到立即终止。
+type podFatalError struct{ err error }
+
+func (e *podFatalError) Error() string { return e.err.Error() }
+func (e *podFatalError) Unwrap() error { return e.err }
 
 // Generate 生成双人播客（同步调用，数分钟级）。
 // onRound 在收到 360 轮次事件时回调（轮次文本实时上抛供对话流进度展示），可为 nil。
 // 连接中断（未收到 152）自动以同一 X-Api-Request-Id 携带 retry_info 续传，
-// 首连 + 最多 2 次续传共 3 次，全部失败返回最后一次错误；ctx 取消立即终止不重试。
+// 首连 + 最多 2 次续传共 3 次，全部失败返回最后一次错误；服务端错误帧与 ctx 取消立即终止不重试。
 func (c *PodcastClient) Generate(ctx context.Context, req PodcastRequest, onRound func(PodcastRound)) (PodcastResult, error) {
 	if err := c.cred.Validate(); err != nil {
 		return PodcastResult{}, err
@@ -125,6 +133,10 @@ func (c *PodcastClient) Generate(ctx context.Context, req PodcastRequest, onRoun
 		if ctx.Err() != nil {
 			return PodcastResult{}, fmt.Errorf("播客生成已取消: %w", ctx.Err())
 		}
+		var fatal *podFatalError
+		if errors.As(err, &fatal) { // 服务端错误帧：重连同参数注定失败，立即终止不再重连
+			return PodcastResult{}, fmt.Errorf("播客生成失败: %w", err)
+		}
 		lastErr = err
 	}
 	if lastErr == nil {
@@ -135,7 +147,7 @@ func (c *PodcastClient) Generate(ctx context.Context, req PodcastRequest, onRoun
 
 // generateOnce 执行一次完整连接：Dial → StartSession → 读循环分派 → 152 后发 FinishConnection 等 52。
 // 返回 done=是否收到 152（合成完成）；lastFinishedRound 为退出时的断点轮次（与 acc 累积值一致）；
-// 连接中断、错误帧、payload 非法等返回 err，由 Generate 决定是否续传。
+// 连接中断、payload 非法等返回 err，由 Generate 决定是否续传；服务端错误帧返回 *podFatalError，不续传。
 func (c *PodcastClient) generateOnce(ctx context.Context, req PodcastRequest, taskID string, retry *podRetryInfo, onRound func(PodcastRound), acc *podAccum) (done bool, lastFinishedRound int, err error) {
 	payload, err := buildPodStartPayload(req, retry)
 	if err != nil {
@@ -183,7 +195,7 @@ func (c *PodcastClient) generateOnce(ctx context.Context, req PodcastRequest, ta
 			return false, acc.lastFinishedRound, fmt.Errorf("读取播客响应失败: %w", podCtxErr(ctx, err))
 		}
 		if frame.ErrCode != 0 {
-			return false, acc.lastFinishedRound, fmt.Errorf("火山播客服务返回错误(code %d): %s", frame.ErrCode, frame.ErrMsg)
+			return false, acc.lastFinishedRound, &podFatalError{fmt.Errorf("火山播客服务返回错误(code %d): %s", frame.ErrCode, frame.ErrMsg)}
 		}
 		switch frame.Event {
 		case EventSessionStarted: // 150 会话建立，无业务数据
@@ -193,11 +205,14 @@ func (c *PodcastClient) generateOnce(ctx context.Context, req PodcastRequest, ta
 				return false, acc.lastFinishedRound, fmt.Errorf("解析播客轮次事件失败: %w", err)
 			}
 			// 断点续传中断在轮次中间时服务端会重发未完成轮次（retry_info 只记已完成轮次），
-			// 此时替换而非追加，避免对话稿出现重复轮次。
+			// 此时替换而非追加，避免对话稿出现重复轮次；并先截断断线前已收的该轮不完整分片，
+			// 否则重发分片与其重复拼接，最终音频 = 部分 + 完整。
 			if n := len(acc.rounds); n > 0 && acc.rounds[n-1].RoundID == round.RoundID && acc.rounds[n-1].DurationS == 0 {
 				acc.rounds[n-1] = round
+				acc.audio.Truncate(acc.roundStartAudioLen)
 			} else {
 				acc.rounds = append(acc.rounds, round)
+				acc.roundStartAudioLen = acc.audio.Len()
 			}
 			if onRound != nil {
 				onRound(round)
@@ -242,7 +257,7 @@ func (c *PodcastClient) generateOnce(ctx context.Context, req PodcastRequest, ta
 					return false, acc.lastFinishedRound, fmt.Errorf("等待播客连接关闭确认失败: %w", podCtxErr(ctx, err))
 				}
 				if ack.ErrCode != 0 {
-					return false, acc.lastFinishedRound, fmt.Errorf("火山播客服务返回错误(code %d): %s", ack.ErrCode, ack.ErrMsg)
+					return false, acc.lastFinishedRound, &podFatalError{fmt.Errorf("火山播客服务返回错误(code %d): %s", ack.ErrCode, ack.ErrMsg)}
 				}
 				if ack.Event == EventConnectionFinished {
 					return true, acc.lastFinishedRound, nil

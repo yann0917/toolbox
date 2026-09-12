@@ -324,6 +324,49 @@ func TestPodcastReconnect(t *testing.T) {
 	}
 }
 
+// TestPodcastReconnectMidRound 轮次中间断开的续传：重发轮次的音频分片不得与断线前已收分片重复拼接。
+func TestPodcastReconnectMidRound(t *testing.T) {
+	const sid = "sess-m"
+	var m *podMockServer
+	m = newPodMockServer(t, func(t *testing.T, conn *websocket.Conn, s *podMockSession) {
+		if m.count() == 1 {
+			// 首连：轮次 1 开始并只收到部分音频，随后直接断开（不回 362/152），触发续传。
+			podWriteMockFrame(conn, podServerTextFrame(EventSessionStarted, sid, []byte("{}")))
+			podWriteMockFrame(conn, podServerTextFrame(EventRoundStart, sid, []byte(`{"speaker":"spk_a","round_id":1,"text":"轮次一"}`)))
+			podWriteMockFrame(conn, podServerAudioFrame(EventRoundResponse, sid, []byte{0x01, 0x02}))
+			return // 断开连接
+		}
+		// 续传：服务端从轮次 1 重发完整音频（[0x01,0x02,0x03]）。
+		podWriteMockFrame(conn, podServerTextFrame(EventRoundStart, sid, []byte(`{"speaker":"spk_a","round_id":1,"text":"轮次一"}`)))
+		podWriteMockFrame(conn, podServerAudioFrame(EventRoundResponse, sid, []byte{0x01, 0x02, 0x03}))
+		podWriteMockFrame(conn, podServerTextFrame(EventRoundEnd, sid, []byte(`{"audio_duration":2.0,"end_time":2.0,"start_time":0}`)))
+		podWriteMockFrame(conn, podServerTextFrame(EventSessionFinished, sid, []byte("{}")))
+		if ev := podReadMockEvent(conn); ev != EventFinishConnection {
+			t.Errorf("152 后收到 event = %d, want %d", ev, EventFinishConnection)
+		}
+		podWriteMockFrame(conn, podServerTextFrame(EventConnectionFinished, sid, []byte("{}")))
+	})
+
+	c := NewPodcastClientWithURL(SpeechCred{AppID: "app", AccessToken: "tok"}, m.wsURL())
+	res, err := c.Generate(context.Background(), PodcastRequest{
+		InputText: "x",
+		Speakers:  [2]string{"a", "b"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Generate() err = %v", err)
+	}
+	if m.count() != 2 {
+		t.Errorf("连接次数 = %d, want 2", m.count())
+	}
+	wantAudio := []byte{0x01, 0x02, 0x03}
+	if !bytes.Equal(res.Audio, wantAudio) {
+		t.Errorf("audio = % x, want % x（重发轮次应先截断已收的不完整分片）", res.Audio, wantAudio)
+	}
+	if len(res.Rounds) != 1 {
+		t.Errorf("rounds = %+v, want 1 条", res.Rounds)
+	}
+}
+
 func TestPodcastErrorFrame(t *testing.T) {
 	m := newPodMockServer(t, func(t *testing.T, conn *websocket.Conn, s *podMockSession) {
 		podWriteMockFrame(conn, podServerErrorFrame(45000001, "invalid param"))
@@ -342,6 +385,9 @@ func TestPodcastErrorFrame(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "45000001") {
 		t.Errorf("错误信息应包含 code: %v", err)
+	}
+	if m.count() != 1 {
+		t.Errorf("连接次数 = %d, want 1（服务端错误帧不应重试续传）", m.count())
 	}
 }
 
