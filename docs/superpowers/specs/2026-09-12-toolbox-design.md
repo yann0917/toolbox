@@ -16,7 +16,7 @@
 | 工具 | 平台/服务 | 接口形态 | 凭证 |
 |---|---|---|---|
 | 语音合成 TTS | 豆包语音（openspeech） | HTTP 非流式 V1 / WebSocket 双向流式 V3 | APP ID + Access Token（或新版 API Key） |
-| 语音识别 ASR | 豆包语音（openspeech） | 本地文件走流式 WS；公网 URL 走 submit/query 异步 HTTP | 同上 |
+| 语音识别 ASR | 豆包语音（openspeech） | 本地文件走 sauc nostream WS 直发；公网 URL 走 submit/query 异步 HTTP | 同上 |
 | 语音播客 | 豆包语音播客大模型 | WebSocket V3，流式事件返回 | 同上 |
 | 人声背景音分离 | AI MediaKit | REST 异步：提交任务 → 轮询 | 独立 MediaKit API Key（Bearer） |
 
@@ -40,7 +40,7 @@
 
 ### 2.2 ASR 语音识别
 - 录音文件识别（异步 HTTP）：`POST /api/v3/auc/bigmodel/submit`（body 传音频公网 URL）→ `POST /api/v3/auc/bigmodel/query` 轮询。Resource-Id `volc.seedasr.auc`。上限 4 小时。
-- 流式识别（WebSocket）：音频分片上行、转写结果下行。**本地文件识别走此通道**（文件按固定时长分片推流），绕开「火山访问不到本地文件」的问题，无需公网 URL。
+- 识别（WebSocket，sauc 协议）：**本地文件识别走官方 sauc 协议（vendor 自 sauc_go demo）`bigmodel_nostream` 端点直发音频、全速分片**，绕开「火山访问不到本地文件」的问题，无需公网 URL。
 - 产物：全文文本 + 分句（带时间戳），支持导出 TXT / SRT。
 - 增值参数：热词（hotwords 直传）、上下文 context。
 
@@ -99,7 +99,8 @@ toolbox/
 │   │       ├── provider.go # 凭证两组：语音(APP ID+Token) / MediaKit(API Key)
 │   │       ├── auth.go     # 语音统一 headers
 │   │       ├── tts.go      # HTTP V1 + WS V3 封装
-│   │       ├── asr.go      # submit/query + 流式 WS(文件分片)
+│   │       ├── asr.go      # ASR：sauc nostream WS 直发 + submit/query 异步 + 工具编排
+│   │       ├── sauc/       # 官方 sauc 协议包（vendor 自 sauc_go demo：header/payload/编解码）
 │   │       ├── podcast.go  # 播客 WS 客户端、事件解析、断点重试
 │   │       └── mediakit.go # 人声分离 REST 客户端
 │   ├── service/            # 业务编排：CLI 与 Web 共用
@@ -158,7 +159,7 @@ type TaskOutput struct {
 REST（前缀 `/api`，响应统一包络：HTTP 一律 200，body `{"code":N,"data":...,"message":"..."}`；业务码与 CLI 退出码同一语义：0 成功、2 参数错误、3 任务/上游失败、4 凭证、5 内部、6 资源不存在。例外：产物流/下载端点为二进制流，不套包络，按真实 HTTP 语义）：
 
 - `GET /api/tools` → 工具列表 + ParamSpec schema（前端渲染表单/CLI 生成共用）
-- `POST /api/tasks` `{provider, tool, params, file_ids?}` → `{task_id}`（上传走 `POST /api/uploads`，返回 file_id；上传仅用于走服务端流式通道的工具，如 ASR 本地文件）
+- `POST /api/tasks` `{provider, tool, params, file_ids?}` → `{task_id}`（上传走 `POST /api/uploads`，返回 file_id；上传仅用于服务端直发官方 nostream 端点的工具，如 ASR 本地文件）
 - `GET /api/tasks?provider=&status=` 分页列表；`GET /api/tasks/:id`（含 artifacts）；`DELETE /api/tasks/:id`；`POST /api/tasks/:id/cancel`
 - `GET /api/artifacts/:id/stream` 音频流（支持 HTTP Range，供播放器拖动）
 - `GET /api/artifacts/:id/download` 附件下载（Content-Disposition）
@@ -222,7 +223,7 @@ toolbox voices list                                      # 音色列表查询与
 - 火山错误码统一映射为中文提示（鉴权失败/额度不足/内容审核/参数错误/限流），保留原始码入库。
 - 播客 WS 断线按官方断点重试机制续传；任务级 context 取消贯穿 provider。
 - ASR 异步轮询指数退避 + 上限；MediaKit 轮询同策略。
-- 火山侧要求公网 URL 的输入（ASR 异步、MediaKit）：Web 表单明确提示，优先引导本地上传通道（ASR 走流式 WS）。
+- 火山侧要求公网 URL 的输入（ASR 异步、MediaKit）：Web 表单明确提示，优先引导本地上传通道（ASR 服务端直发官方 nostream 端点）。
 - 任务并发默认 2，可配置；上传文件大小限制可配置。
 
 ## 11. 测试策略
@@ -236,7 +237,7 @@ toolbox voices list                                      # 音色列表查询与
 
 1. **M1 骨架**：cobra + gin + gorm + config + embed 前端空壳跑通；tasks/artifacts 模型与任务引擎。
 2. **M2 TTS 端到端**：provider TTS（HTTP V1）→ service → REST/WS → 前端合成页 + 播放器 + 历史。CLI `toolbox tts`。
-3. **M3 ASR**：流式 WS 本地文件识别 + 异步 URL 通道；识别结果页（分句/时间戳）、TXT/SRT 导出。
+3. **M3 ASR**：本地文件直发（官方 sauc nostream 协议）+ 异步 URL 通道；识别结果页（分句/时间戳）、TXT/SRT 导出。
 4. **M4 播客**：播客 WS 客户端（事件流、断点重试、audio_url 转存）；播客工坊页面。
 5. **M5 MediaKit 人声分离** + 工具联动（分离→ASR）。
 6. **M6 产品化打磨**：双主题完成度、mini-player、工作台统计、错误文案、README 与打包发布（goreleaser 单二进制）。

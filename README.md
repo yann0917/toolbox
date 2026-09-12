@@ -5,7 +5,7 @@
 | 能力 | 说明 | 接口形态 |
 |---|---|---|
 | 语音合成 TTS | 文本转语音，多音色、语速音量可调 | HTTP + WebSocket |
-| 语音识别 ASR | 本地文件/URL 转文字，分句时间戳、SRT 字幕 | 流式 WebSocket / 异步 HTTP |
+| 语音识别 ASR | 本地文件/URL 转文字，分句时间戳、SRT 字幕 | 本地文件直发（官方协议）/ URL 异步 |
 | 语音播客 | 主题/长文本/网页一键生成双人播客 | WebSocket 事件流 |
 | 人声背景音分离 | 从音视频分离人声与背景音双轨 | AI MediaKit REST |
 
@@ -18,7 +18,7 @@
 
 ## 开发状态
 
-M1+M2 已完成（骨架 + TTS 端到端）；ASR/播客/人声分离待实施。设计文档见 [docs/superpowers/specs/2026-09-12-toolbox-design.md](docs/superpowers/specs/2026-09-12-toolbox-design.md)。
+M1+M2+M3 已完成（骨架、语音合成、语音识别）；播客、人声分离待实施。设计文档见 [docs/superpowers/specs/2026-09-12-toolbox-design.md](docs/superpowers/specs/2026-09-12-toolbox-design.md)。
 
 ## 快速开始
 
@@ -33,12 +33,15 @@ make all
 # CLI 合成（机器可读输出，退出码 0 成功）
 ./bin/toolbox tts "你好，toolbox" --out /tmp/hello.mp3 --json
 
+# 音频转文字（--srt 默认产出 SRT 字幕，--srt=false 关闭；其他格式见 skill 参考）
+./bin/toolbox asr /tmp/recording.mp3 --out /tmp/transcript.txt --json
+
 # 启动 Web 控制台（默认端口取配置 server.port，可用 --port 覆盖）
 ./bin/toolbox serve --port 8080
 # 浏览器打开 http://127.0.0.1:8080 → TTS 页合成、播放、查看历史
 ```
 
-未配置凭证时执行 `tts` 以退出码 4 结束，stderr 提示 `config set` 命令。
+未配置凭证时执行 `tts` / `asr` 以退出码 4 结束，stderr 提示 `config set` 命令。
 
 ## 技术栈
 

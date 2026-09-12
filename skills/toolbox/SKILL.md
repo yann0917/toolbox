@@ -22,14 +22,14 @@ description: 多媒体 AI 工具箱 CLI（toolbox），通过火山引擎提供�
 
 ## 四个能力的最小用法
 
-> 当前构建提供 `tts` / `config` / `voices` / `serve` 命令；`asr` / `podcast` / `separate` / `run` 随后续里程碑交付，调用前先 `toolbox --help` 确认可用。
+> 当前构建提供 `tts` / `asr` / `config` / `voices` / `serve` 命令；`podcast` / `separate` / `run` 随后续里程碑交付，调用前先 `toolbox --help` 确认可用。
 
 ```bash
 # 文字转语音（返回 mp3 路径）
 toolbox tts "今天天气不错" --voice zh_male_dayixiansheng_v2_saturn_bigtts --out speech.mp3 --json
 
-# 音频转文字（本地文件自动走流式通道；--srt 额外产出带时间戳字幕）
-toolbox asr recording.mp3 --out transcript.txt --srt --json
+# 音频转文字（本地文件直发；--srt 默认开启，额外产出带时间戳 SRT 字幕）
+toolbox asr recording.mp3 --out transcript.txt --json
 
 # 生成双人播客（输入主题/长文本；也可 --url 传网页链接、--script 传自备对话稿）
 toolbox podcast "介绍下大模型在语音方向的应用" --out podcast.mp3 --json

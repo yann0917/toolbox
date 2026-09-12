@@ -59,20 +59,23 @@ toolbox tts <text | --file path> [flags]
 ## asr 语音识别
 
 ```bash
-toolbox asr <file | --url audio_url> [flags]
+toolbox asr <file> [--url audio_url] [flags]
 ```
+
+位置参数 file 与 `--url` 二选一；同传报参数错误，都不传也报参数错误。
 
 | flag | 默认 | 说明 |
 |---|---|---|
 | `--out` | 数据目录自动命名 | 转写文本输出路径 |
-| `--srt` | 关 | 额外产出 `.srt` 字幕（artifacts 中 kind=`subtitle`） |
+| `--srt` | 开 | 额外产出 `.srt` 字幕（artifacts 中 kind=`subtitle`）；关闭传 `--srt=false` |
 | `--hotwords` | 空 | 逗号分隔热词，提升专有名词准确率 |
-| `--url` | — | 公网音频 URL，走异步批量通道；本地文件自动走流式通道 |
+| `--language` | `zh-CN` | 识别语言，可传其他语言代码 |
+| `--url` | — | 公网音频 URL，走异步批量通道 |
 | `--json` | 关 | 机器可读输出 |
 
-- 本地文件：读文件按固定时长分片推流识别，无需公网可达。
+- 本地文件：官方协议直发识别端点（全速分片），无需公网可达。
 - `artifacts` 中 `transcript` 为全文文本；分句与时间戳在 JSON `summary.segments` 中（每句 `{text, start_ms, end_ms}`）。
-- 支持常见音频/视频容器（mp3/wav/m4a/aac/mp4 等），时长上限 4 小时。
+- 支持 mp3/wav/ogg/pcm（wav/pcm 内部需 pcm_s16le），其他格式报参数错误。
 
 ## podcast 播客生成
 
