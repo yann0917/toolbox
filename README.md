@@ -7,7 +7,7 @@
 | 语音合成 TTS | 文本转语音，多音色、语速音量可调 | HTTP + WebSocket |
 | 语音识别 ASR | 本地文件/URL 转文字，分句时间戳、SRT 字幕 | 本地文件直发（官方协议）/ URL 异步 |
 | 语音播客 | 主题/长文本/网页/对话稿一键生成双人播客 | WebSocket 事件流，支持断点续传 |
-| 人声背景音分离 | 从音视频分离人声与背景音双轨 | AI MediaKit REST |
+| 人声背景音分离 | 公网音视频 URL 多轨分离：Audio/Music 双轨（人声+背景/伴奏），Drama/Narrate 三轨（人声+音乐+音效） | AI MediaKit REST（产物 24h 临时链接，立即转存本地） |
 
 ## 特性
 
@@ -18,7 +18,7 @@
 
 ## 开发状态
 
-M1-M4 已完成（骨架、语音合成、语音识别、语音播客）；人声分离、产品化打磨待实施。设计文档见 [docs/superpowers/specs/2026-09-12-toolbox-design.md](docs/superpowers/specs/2026-09-12-toolbox-design.md)。
+M1-M5 已完成（骨架、语音合成、语音识别、语音播客、人声分离）；产品化打磨待实施。设计文档见 [docs/superpowers/specs/2026-09-12-toolbox-design.md](docs/superpowers/specs/2026-09-12-toolbox-design.md)。
 
 ## 快速开始
 
@@ -43,12 +43,18 @@ make all
 # 播客输入四选一：位置参数文本 / --file 长文本文件 / --url 网页 / --script 对话稿 JSON（互斥）
 # 音频格式 --format mp3|ogg_opus|pcm|aac，开头音乐 --head-music
 
+# 人声背景音分离（四场景 audio/music 双轨、drama/narrate 三轨；需独立的 MediaKit API Key）
+./bin/toolbox config set volc.mediakit.api_key <MediaKit API Key>
+./bin/toolbox separate "https://example.com/media.mp4" --scene audio --format mp3 --json
+# 音视频公网 URL 必填（MediaKit 不支持本地文件，本地文件请先上传至对象存储）；
+# 输出格式 --format aac|mp3|wav|m4a|flac，产物音轨落盘 --out-dir 指定目录
+
 # 启动 Web 控制台（默认端口取配置 server.port，可用 --port 覆盖）
 ./bin/toolbox serve --port 8080
-# 浏览器打开 http://127.0.0.1:8080 → 合成/识别/播客工坊页交互、播放、查看历史
+# 浏览器打开 http://127.0.0.1:8080 → 合成/识别/播客/分离页交互、播放、查看历史
 ```
 
-未配置凭证时执行 `tts` / `asr` / `podcast` 以退出码 4 结束，stderr 提示 `config set` 命令。
+未配置凭证时执行 `tts` / `asr` / `podcast`（语音凭证）或 `separate`（MediaKit API Key，两套凭证独立）以退出码 4 结束，stderr 提示 `config set` 命令。
 
 ## 技术栈
 

@@ -57,8 +57,10 @@
 - 服务端在收到 PodcastEnd 后**立即下载临时 audio_url 转存本地**，避免 1h 失效。
 
 ### 2.4 AI MediaKit 人声背景音分离
-- `POST https://mediakit.cn-beijing.volces.com/api/v1/tools/separate-voice`，`Authorization: Bearer <MediaKit API Key>`，body `{video_url|audio_url, scene: "Audio"|"Drama"}` → 返回 task_id。
-- `GET /api/v1/tasks/{task_id}` 轮询至 completed，输出 2 轨音频 URL。
+- `POST https://mediakit.cn-beijing.volces.com/api/v1/tools/separate-voice`，`Authorization: Bearer <MediaKit API Key>`，body `{video_url|audio_url, scene: "Audio"|"Music"|"Drama"|"Narrate", output_format?}` → 返回 task_id。媒体字段二选一：按 URL 扩展名推断，常见视频扩展名走 `video_url`，其余走 `audio_url`。
+- scene 四场景轨道数不同：Audio（通用，人声+背景）、Music（音乐，人声+伴奏）双轨；Drama（短剧）、Narrate（口播）三轨（人声+音乐+音效）。
+- `output_format` 输出格式 aac/mp3/wav/m4a/flac：上游默认 aac，工具箱默认 mp3。
+- `GET /api/v1/tasks/{task_id}` 轮询至 completed，输出多轨音频 URL——**24 小时有效的临时直链**，服务端 completed 后立即逐轨下载转存本地（与播客 1h audio_url 转存同策略，播客临时链接才是 1h）。
 - 输入支持公网 URL（`https://`）。本地文件首期要求用户先提供可访问 URL；后续可评估 mediakit:// 本地上传通道。
 
 ## 3. 总体架构（方案 A：单二进制）
@@ -159,7 +161,7 @@ type TaskOutput struct {
 REST（前缀 `/api`，响应统一包络：HTTP 一律 200，body `{"code":N,"data":...,"message":"..."}`；业务码与 CLI 退出码同一语义：0 成功、2 参数错误、3 任务/上游失败、4 凭证、5 内部、6 资源不存在。例外：产物流/下载端点为二进制流，不套包络，按真实 HTTP 语义）：
 
 - `GET /api/tools` → 工具列表 + ParamSpec schema（前端渲染表单/CLI 生成共用）
-- `POST /api/tasks` `{provider, tool, params, file_ids?}` → `{task_id}`（上传走 `POST /api/uploads`，返回 file_id；上传仅用于服务端直发官方 nostream 端点的工具，如 ASR 本地文件）
+- `POST /api/tasks` `{provider, tool, params, file_ids?, artifact_input?}` → `{task_id}`（上传走 `POST /api/uploads`，返回 file_id；上传仅用于服务端直发官方 nostream 端点的工具，如 ASR 本地文件）。`artifact_input`：既有产物 id，跨工具联动输入（如分离人声轨送 ASR）——服务端解析产物文件注入 `files["audio"]`，与 `file_ids` 互斥，产物文件须真实存在
 - `GET /api/tasks?provider=&status=` 分页列表；`GET /api/tasks/:id`（含 artifacts）；`DELETE /api/tasks/:id`；`POST /api/tasks/:id/cancel`
 - `GET /api/artifacts/:id/stream` 音频流（支持 HTTP Range，供播放器拖动）
 - `GET /api/artifacts/:id/download` 附件下载（Content-Disposition）
@@ -205,7 +207,7 @@ toolbox voices list                                      # 音色列表查询与
 2. **语音合成**：文本编辑区（字数、长文本提示）+ 参数面板（音色分组选择器、试听样本；语速/音量/格式）。生成 → 进度态 → 内嵌播放器 + 下载。
 3. **语音识别**：拖拽上传或粘贴 URL；结果按句展示（时间戳可点击跳播），导出 TXT/SRT。
 4. **播客工坊**：三步向导——内容输入（主题/长文本/网页/对话稿 四模式）→ 双人音色搭配（预设组合）→ 生成页「对话流」逐轮滚动 + 进度环 + 已生成时长；成品播放器。
-5. **人声分离**：输入音频/视频公网 URL（表单明确提示 MediaKit 需公网可访问地址）→ 场景选择 → 双轨结果（人声、背景音各一播放器，分别下载）；一键「送 ASR」。
+5. **人声分离**：输入音频/视频公网 URL（表单明确提示 MediaKit 需公网可访问地址，本地文件先上传对象存储）→ 四场景选择（通用/音乐双轨，短剧/口播三轨）+ 输出格式 → 多轨结果（每轨一行播放器、分别下载）；人声轨一键「送 ASR」（`artifact_input` 跨工具联动）。
 6. **历史**：任务表格（类型/状态/耗时筛选），行内重播、下载、删除、同参重跑；产物均有下载入口。
 7. **设置**：凭证配置 + 连接测试、默认参数、数据目录。
 
