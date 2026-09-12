@@ -8,7 +8,7 @@ import (
 )
 
 // RegisterAll 将火山引擎的全部工具注册进 registry。
-// 凭证缺失时 TTS/ASR 仍注册（Run 时再报凭证错误）。
+// 凭证缺失时 TTS/ASR/播客仍注册（Run 时再报凭证错误）。
 func RegisterAll(reg *provider.Registry, cfg config.Config, dataDir string) error {
 	cred := SpeechCred{
 		AppID:       cfg.Volc.Speech.AppID,
@@ -17,5 +17,6 @@ func RegisterAll(reg *provider.Registry, cfg config.Config, dataDir string) erro
 	}
 	ttsErr := reg.Register(NewTTSTool(cred, dataDir))
 	asrErr := reg.Register(NewASRTool(cred, dataDir))
-	return errors.Join(ttsErr, asrErr)
+	podErr := reg.Register(NewPodcastTool(cred, dataDir))
+	return errors.Join(ttsErr, asrErr, podErr)
 }

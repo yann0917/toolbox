@@ -61,7 +61,7 @@ func TestToolsAndTaskSubmit(t *testing.T) {
 	ts, _ := newTestServer(t)
 	e := getEnvelope(t, ts.URL+"/api/tools")
 	tools, _ := e.Data.([]any)
-	if len(tools) != 2 {
+	if len(tools) != 3 {
 		t.Fatalf("tools = %v", e.Data)
 	}
 	// Registry().List() 基于 map 遍历，顺序不定：按 name 断言而非下标。
@@ -73,7 +73,7 @@ func TestToolsAndTaskSubmit(t *testing.T) {
 			found[name] = true
 		}
 	}
-	if !found["tts"] || !found["asr"] {
+	if !found["tts"] || !found["asr"] || !found["podcast"] {
 		t.Fatalf("tool names = %v", found)
 	}
 
