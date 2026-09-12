@@ -45,6 +45,7 @@ export default function SettingsPage() {
         {field("app_id", "火山语音 APP ID", "留空则不修改")}
         {field("access_token", "Access Token", "留空则不修改")}
         {field("api_key", "新版 API Key（二选一）", "留空则不修改")}
+        {field("mediakit_api_key", "AI MediaKit API Key（人声分离）", "留空则不修改")}
         <button className="px-5 py-2 rounded-lg bg-[var(--accent)] text-[var(--accent-fg)] text-sm font-medium">保存</button>
         {save.isSuccess && <p className="text-xs" style={{ color: "var(--ok)" }}>已保存，重启服务后生效</p>}
       </form>

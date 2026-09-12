@@ -6,6 +6,7 @@ const nav = [
   { to: "/tts", label: "语音合成", icon: "🗣" },
   { to: "/asr", label: "语音识别", icon: "🎙" },
   { to: "/podcast", label: "播客工坊", icon: "🎧" },
+  { to: "/separate", label: "人声分离", icon: "🎚" },
   { to: "/history", label: "历史", icon: "🕘" },
   { to: "/settings", label: "设置", icon: "⚙" },
 ];

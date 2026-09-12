@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { apiBase, fetchJSON } from "../lib/api";
 import TaskProgress from "../components/TaskProgress";
 import SegmentList, { type Segment } from "../components/SegmentList";
@@ -19,6 +20,11 @@ interface Artifact { id: string; kind: string; filename: string }
 const ACCEPT = ".mp3,.wav,.ogg,.pcm";
 
 export default function ASRPage() {
+  // 跨工具联动：/asr?artifact=<id>（来自分离页「送 ASR识别」）→ 跳过输入区，
+  // 以 artifact_input 直接提交识别任务。
+  const [searchParams] = useSearchParams();
+  const artifactId = searchParams.get("artifact")?.trim() ?? "";
+  const artifactMode = artifactId !== "";
   const [mode, setMode] = useState<"upload" | "url">("upload");
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("");
@@ -49,12 +55,19 @@ export default function ASRPage() {
     }
   }, [ev, taskId]);
 
-  const canSubmit = mode === "upload" ? file != null : url.trim() !== "";
+  const canSubmit = artifactMode || (mode === "upload" ? file != null : url.trim() !== "");
 
   const submit = useMutation({
     mutationFn: async () => {
       const params: Record<string, unknown> = { srt: true, language: language.trim() || "zh-CN" };
       if (hotwords.trim()) params.hotwords = hotwords.trim();
+      if (artifactMode) {
+        // artifact_input 模式：已有人声轨产物直接作为输入（params 仅 srt/language，无 url/file_ids）。
+        return fetchJSON<{ task_id: string }>("/api/tasks", {
+          method: "POST",
+          body: JSON.stringify({ provider: "volcengine", tool: "asr", params, artifact_input: artifactId }),
+        });
+      }
       if (mode === "url") {
         return fetchJSON<{ task_id: string }>("/api/tasks", {
           method: "POST",
@@ -76,7 +89,9 @@ export default function ASRPage() {
       setTask({ id: d.task_id, status: "pending", progress: 0, progress_note: "已提交" });
       setSegments([]);
       setArtifacts([]);
-      if (mode === "upload" && file) {
+      if (artifactMode) {
+        setPlaySrc(`${apiBase}/api/artifacts/${artifactId}/stream`);
+      } else if (mode === "upload" && file) {
         if (blobRef.current) URL.revokeObjectURL(blobRef.current);
         blobRef.current = URL.createObjectURL(file);
         setPlaySrc(blobRef.current);
@@ -101,6 +116,20 @@ export default function ASRPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <h1 className="text-xl font-semibold">语音识别</h1>
+      {artifactMode ? (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
+          <p className="text-sm">
+            将使用人声分离任务的音轨直接识别（产物 <span className="text-[var(--accent)]">{artifactId.slice(0, 8)}</span>）
+          </p>
+          <button
+            disabled={submit.isPending}
+            onClick={() => submit.mutate()}
+            className="px-5 py-2 rounded-lg bg-[var(--accent)] text-[var(--accent-fg)] text-sm font-medium disabled:opacity-40"
+          >
+            {submit.isPending ? "提交中…" : "开始识别"}
+          </button>
+        </div>
+      ) : (
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
         <div className="flex gap-2 text-sm">
           {(["upload", "url"] as const).map((m) => (
@@ -140,6 +169,7 @@ export default function ASRPage() {
           {submit.isPending ? "提交中…" : "开始识别"}
         </button>
       </div>
+      )}
       {task && <TaskProgress task={task} />}
       {playSrc && <audio ref={audioRef} controls src={playSrc} className="w-full" />}
       {segments.length > 0 && (
