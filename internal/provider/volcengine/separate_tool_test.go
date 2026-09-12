@@ -312,6 +312,22 @@ func TestSeparateToolFailed(t *testing.T) {
 			t.Fatalf("err = %v, 期望包含「分离结果为空」", err)
 		}
 	})
+
+	t.Run("empty_tracks", func(t *testing.T) {
+		shortenSepPoll(t)
+		// completed 且 result 存在但无任何音轨 URL：Tracks 为空，同报「分离结果为空」。
+		m := newSepMockServer(t, []map[string]any{
+			{"success": true, "task_id": "task-sep-1", "status": "completed",
+				"result": map[string]any{"duration": 12.5}},
+		})
+		tool := &SeparateTool{client: NewMediaKitClientWithBaseURL("key-1", m.srv.URL), outDir: t.TempDir()}
+		_, err := tool.Run(context.Background(), provider.TaskInput{
+			Params: map[string]any{"url": "https://example.com/a.mp3"},
+		}, nopReport)
+		if err == nil || !strings.Contains(err.Error(), "分离结果为空") {
+			t.Fatalf("err = %v, 期望包含「分离结果为空」", err)
+		}
+	})
 }
 
 func TestSeparateToolOutDirRedirect(t *testing.T) {

@@ -16,6 +16,7 @@ func TestExitCodeFor(t *testing.T) {
 	}{
 		{nil, 0},
 		{fmt.Errorf("缺少必填参数: text"), 2},
+		{fmt.Errorf("缺少输入：请提供公网可访问的音视频 URL"), 2},
 		{fmt.Errorf("speakers 需要恰好 2 个音色 ID（逗号分隔，toolbox voices list 查询）"), 2},
 		{fmt.Errorf("对话稿格式错误：第 1 轮缺少 speaker 或 text"), 2},
 		{fmt.Errorf("播客输入只能提供其一（文本/网页/对话稿）"), 2},

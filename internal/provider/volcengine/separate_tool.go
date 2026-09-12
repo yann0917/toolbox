@@ -126,7 +126,7 @@ func (t *SeparateTool) pollSeparate(ctx context.Context, taskID string, report p
 		}
 		switch status {
 		case "completed":
-			if res == nil {
+			if res == nil || len(res.Tracks) == 0 {
 				return nil, fmt.Errorf("分离结果为空")
 			}
 			return res, nil
