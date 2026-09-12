@@ -80,6 +80,10 @@ func runToolSync(c *cobra.Command, providerName, toolName string, params map[str
 		params["_out"] = outPath // provider 侧支持 _out 参数指定产物绝对路径
 	}
 	task, arts, err := svc.Engine().SubmitSync(c.Context(), providerName, toolName, params, files)
+	// 进度行以 \r 原地刷新且无结尾换行，终态输出前补一个换行分开两行（--json 模式无进度输出，跳过）。
+	if !jsonOut {
+		eprintf("\n")
+	}
 	if err != nil {
 		eprintf("错误: %v\n", err)
 		os.Exit(exitCodeFor(err))
