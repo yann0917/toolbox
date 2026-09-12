@@ -101,6 +101,40 @@ func TestToolsAndTaskSubmit(t *testing.T) {
 	}
 }
 
+// TestSettingsTestConnection 连通性检测响应结构：顶层 ok/message 仍为语音探测结果
+// （向后兼容，前端 SettingsPage 直接消费），新增 mediakit 段（独立 ok/message）。
+// 测试环境无凭证：语音校验与 MediaKit 未配置检查均在发网络请求前返回，不会外联。
+func TestSettingsTestConnection(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, err := http.Post(ts.URL+"/api/settings/test-connection", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var e envelope
+	_ = json.NewDecoder(resp.Body).Decode(&e)
+	if e.Code != 0 {
+		t.Fatalf("code = %d (%s)", e.Code, e.Message)
+	}
+	data, _ := e.Data.(map[string]any)
+	if _, exists := data["ok"]; !exists {
+		t.Errorf("data 缺少顶层 ok 键: %v", data)
+	}
+	if msg, _ := data["message"].(string); msg == "" {
+		t.Errorf("data.message 应为非空字符串: %v", data)
+	}
+	mk, ok := data["mediakit"].(map[string]any)
+	if !ok {
+		t.Fatalf("data.mediakit 应为对象: %v", data)
+	}
+	if _, exists := mk["ok"]; !exists {
+		t.Errorf("mediakit 缺少 ok 键: %v", mk)
+	}
+	if msg, _ := mk["message"].(string); msg == "" {
+		t.Errorf("mediakit.message 应为非空字符串: %v", mk)
+	}
+}
+
 func TestErrorEnvelope(t *testing.T) {
 	ts, _ := newTestServer(t)
 	// 未知工具：code 2，HTTP 仍 200

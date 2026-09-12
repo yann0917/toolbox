@@ -242,7 +242,9 @@ func (s *Server) putSettings(c *gin.Context) {
 
 func (s *Server) testConnection(c *gin.Context) {
 	msg, connOK := s.svc.TestSpeechConnection()
-	ok(c, gin.H{"ok": connOK, "message": msg})
+	// 顶层 ok/message 保持语音探测结果不变（向后兼容）；mediakit 段为 MediaKit 独立凭证探测。
+	mkMsg, mkOK := s.svc.TestMediaKitConnection()
+	ok(c, gin.H{"ok": connOK, "message": msg, "mediakit": gin.H{"ok": mkOK, "message": mkMsg}})
 }
 
 func (s *Server) listVoices(c *gin.Context) {

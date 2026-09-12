@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -93,4 +94,34 @@ func (s *Service) TestSpeechConnection() (string, bool) {
 		return err.Error(), false
 	}
 	return "连接成功", true
+}
+
+// TestMediaKitConnection MediaKit 连通性探测（与人声分离工具同域、同 Bearer 鉴权头）：
+// GET 一个必然不存在的任务 ID——404/400 表示鉴权通过（任务不存在属预期）→ 连接成功；
+// 401/403 → 凭证无效；网络错误透传错误信息。未配置 apiKey 时直接报未配置，不发起请求。
+func (s *Service) TestMediaKitConnection() (string, bool) {
+	if s.cfg.Volc.MediaKit.APIKey == "" {
+		return "未配置 AI MediaKit API Key：请执行 toolbox config set volc.mediakit.api_key 或在 Web 设置页配置", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		volcengine.MediaKitBaseURL+fmt.Sprintf(volcengine.MediaKitQueryPathFmt, "nonexistent-connectivity-probe"), nil)
+	if err != nil {
+		return err.Error(), false
+	}
+	req.Header.Set("Authorization", "Bearer "+s.cfg.Volc.MediaKit.APIKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err.Error(), false
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return "凭证无效", false
+	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest:
+		return "连接成功", true
+	default:
+		return fmt.Sprintf("MediaKit 探测异常(HTTP %d)", resp.StatusCode), false
+	}
 }
