@@ -39,6 +39,8 @@ const FORMATS = ["mp3", "wav", "pcm", "ogg_opus"];
 const DEFAULT_VOICE = "zh_female_cancan_mars_bigtts";
 /** 与后端 tts tool 的 longTextThreshold 一致：超过即分段合成，且分段仅支持 mp3 */
 const LONG_TEXT_LIMIT = 1000;
+/** 音色下拉中的「自定义」哨兵值：允许填入内置列表之外（含声音复刻）的音色 ID */
+const CUSTOM_VOICE = "__custom__";
 
 /** 任务运行态：只保留界面需要的字段，不伪造完整 Task DTO */
 interface Run {
@@ -138,7 +140,9 @@ export default function TTSPage() {
   const fallbackVoiceId = voiceList.find((v) => v.id === DEFAULT_VOICE)?.id ?? voiceList[0]?.id ?? DEFAULT_VOICE;
   const voiceVal = voicesUsable ? voice || fallbackVoiceId : DEFAULT_VOICE;
   const voiceInput = voiceText.trim() || DEFAULT_VOICE;
-  const effectiveVoice = voicesUsable ? voiceVal : voiceInput;
+  // 自定义模式下用输入框的值（不兜默认，空值由 canSubmit 拦住）
+  const effectiveVoice =
+    voicesUsable && voice === CUSTOM_VOICE ? voiceText.trim() : voicesUsable ? voiceVal : voiceInput;
 
   /* WS 事件驱动当前任务进度；终态拉详情拿产物与最终状态 */
   useEffect(() => {
@@ -191,11 +195,12 @@ export default function TTSPage() {
     },
   });
 
-  const charCount = Array.from(text).length;
+  // 与后端 splitText 一致：先 TrimSpace 再按 rune 计数，避免首尾空白造成误判
+  const charCount = Array.from(text.trim()).length;
   const longText = charCount > LONG_TEXT_LIMIT;
   // 长文本分段合成只支持 mp3：非 mp3 时行内警告并拦住提交（后端必然报错）
   const blockedByLongText = longText && format !== "mp3";
-  const canSubmit = text.trim() !== "" && !blockedByLongText;
+  const canSubmit = text.trim() !== "" && !blockedByLongText && effectiveVoice.trim() !== "";
 
   const artifacts = detail?.artifacts ?? [];
   const audioArtifacts = artifacts.filter((a) => a.kind === "audio");
@@ -272,17 +277,28 @@ export default function TTSPage() {
             >
               {({ id, ...rest }) =>
                 voicesUsable ? (
-                  <Select id={id} value={voiceVal} onChange={(e) => setVoice(e.target.value)} {...rest}>
-                    {voiceGroups.map(([category, list]) => (
-                      <optgroup key={category} label={category}>
-                        {list.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.id} · {v.gender}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </Select>
+                  <div className="space-y-2">
+                    <Select id={id} value={voiceVal} onChange={(e) => setVoice(e.target.value)} {...rest}>
+                      {voiceGroups.map(([category, list]) => (
+                        <optgroup key={category} label={category}>
+                          {list.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.id} · {v.gender}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                      <option value={CUSTOM_VOICE}>自定义音色 ID…（含声音复刻音色）</option>
+                    </Select>
+                    {voice === CUSTOM_VOICE && (
+                      <Input
+                        value={voiceText}
+                        onChange={(e) => setVoiceText(e.target.value)}
+                        placeholder="粘贴自定义 / 复刻音色 ID"
+                        aria-label="自定义音色 ID"
+                      />
+                    )}
+                  </div>
                 ) : (
                   <Input
                     id={id}
