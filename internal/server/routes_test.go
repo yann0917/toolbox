@@ -60,13 +60,20 @@ func TestToolsAndTaskSubmit(t *testing.T) {
 	ts, _ := newTestServer(t)
 	e := getEnvelope(t, ts.URL+"/api/tools")
 	tools, _ := e.Data.([]any)
-	if len(tools) != 1 {
+	if len(tools) != 2 {
 		t.Fatalf("tools = %v", e.Data)
 	}
-	tool, _ := tools[0].(map[string]any)
-	meta, _ := tool["meta"].(map[string]any)
-	if meta["name"] != "tts" {
-		t.Fatalf("tool meta = %v", meta)
+	// Registry().List() 基于 map 遍历，顺序不定：按 name 断言而非下标。
+	found := map[string]bool{}
+	for _, it := range tools {
+		m, _ := it.(map[string]any)
+		meta, _ := m["meta"].(map[string]any)
+		if name, _ := meta["name"].(string); name != "" {
+			found[name] = true
+		}
+	}
+	if !found["tts"] || !found["asr"] {
+		t.Fatalf("tool names = %v", found)
 	}
 
 	body := `{"provider":"volcengine","tool":"tts","params":{"text":"缺凭证也入库","format":"mp3"}}`
