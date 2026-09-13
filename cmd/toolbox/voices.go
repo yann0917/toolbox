@@ -54,7 +54,7 @@ func newVoicesCmd() *cobra.Command {
 			return nil
 		},
 	}
-	list.Flags().Bool("json", false, "stdout 输出机器可读 JSON")
+	list.Flags().BoolVar(&jsonOut, "json", false, "stdout 输出机器可读 JSON")
 	list.Flags().StringVar(&sceneFlt, "scene", "", "按场景筛选（通用场景/角色扮演/视频配音/教育场景/客服场景/有声阅读/外语音色/多情感/趣味口音）")
 	list.Flags().StringVar(&langFlt, "lang", "", "按语种筛选（中文/美式英语/日语等，完整词表见 --json 输出 languages 字段）")
 	cmd.AddCommand(list)

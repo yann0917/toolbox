@@ -112,4 +112,9 @@ func TestVoicesSpotChecks(t *testing.T) {
 	if len(byID["zh_male_lengkugege_emo_v2_mars_bigtts"].Emotions) == 0 {
 		t.Errorf("多情感音色应携带 emotions")
 	}
+	// 开朗学长（en_male_jason）官方确认支持中英混，文档语种列漏标英文，人工修正后锁定
+	jason := byID["en_male_jason_conversation_wvae_bigtts"]
+	if !voiceListHas(jason.Languages, "中文") || !voiceListHas(jason.Languages, "美式英语") {
+		t.Errorf("开朗学长应支持中英混: %v", jason.Languages)
+	}
 }
