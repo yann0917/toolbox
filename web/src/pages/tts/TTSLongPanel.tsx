@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
-  ArrowUpRight,
   ChevronDown,
   ChevronUp,
   Play,
@@ -11,11 +9,11 @@ import {
   ScrollText,
   SlidersHorizontal,
 } from "lucide-react";
-import { fetchJSON } from "../lib/api";
-import type { TaskDetail, TaskStatus, Voice } from "../lib/types";
-import { useTaskEvents } from "../lib/ws";
-import { VoicePicker } from "../components/VoicePicker";
-import { ArtifactRow } from "../components/ArtifactRow";
+import { fetchJSON } from "../../lib/api";
+import type { TaskDetail, TaskStatus, Voice } from "../../lib/types";
+import { useTaskEvents } from "../../lib/ws";
+import { VoicePicker } from "../../components/VoicePicker";
+import { ArtifactRow } from "../../components/ArtifactRow";
 import {
   Button,
   Card,
@@ -25,14 +23,13 @@ import {
   Field,
   Input,
   MicroLabel,
-  PageHeader,
   ProgressBar,
   Select,
   Skeleton,
   StatusBadge,
   Textarea,
   useToast,
-} from "../ui";
+} from "../../ui";
 
 /** 长文本合成仅支持三种格式（无 wav） */
 const FORMATS = ["mp3", "pcm", "ogg_opus"];
@@ -61,7 +58,7 @@ interface Run {
   error?: string;
 }
 
-export default function TTSLongPage() {
+export default function TTSLongPanel() {
   const [text, setText] = useState("");
   // 生效音色 ID：由 VoicePicker（仅 2.0 代际 + 自定义/复刻输入）上报
   const [voice, setVoice] = useState("");
@@ -180,19 +177,6 @@ export default function TTSLongPage() {
 
   return (
     <>
-      <PageHeader
-        title="长文本合成"
-        description="10 万字以内长文本异步合成，支持分句时间戳与 SRT 字幕"
-        actions={
-          <Link
-            to="/history"
-            className="inline-flex items-center gap-1 text-xs text-fg-2 transition-colors duration-150 hover:text-accent"
-          >
-            历史产物
-            <ArrowUpRight size={13} strokeWidth={1.75} />
-          </Link>
-        }
-      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* 左：文本编辑区 */}

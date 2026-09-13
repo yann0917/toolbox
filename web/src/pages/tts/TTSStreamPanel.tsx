@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
-  ArrowUpRight,
   ChevronDown,
   ChevronUp,
   Play,
@@ -11,11 +9,11 @@ import {
   RefreshCw,
   SlidersHorizontal,
 } from "lucide-react";
-import { fetchJSON } from "../lib/api";
-import type { TaskDetail, TaskStatus, Voice } from "../lib/types";
-import { useTaskEvents } from "../lib/ws";
-import { VoicePicker } from "../components/VoicePicker";
-import { ArtifactRow } from "../components/ArtifactRow";
+import { fetchJSON } from "../../lib/api";
+import type { TaskDetail, TaskStatus, Voice } from "../../lib/types";
+import { useTaskEvents } from "../../lib/ws";
+import { VoicePicker } from "../../components/VoicePicker";
+import { ArtifactRow } from "../../components/ArtifactRow";
 import {
   Button,
   Card,
@@ -25,14 +23,13 @@ import {
   Field,
   Input,
   MicroLabel,
-  PageHeader,
   ProgressBar,
   Select,
   Skeleton,
   StatusBadge,
   Textarea,
   useToast,
-} from "../ui";
+} from "../../ui";
 
 /** 流式合成支持四种格式（比长文本多 wav；流式场景官方推荐 pcm） */
 const FORMATS = ["mp3", "pcm", "ogg_opus", "wav"];
@@ -47,7 +44,7 @@ interface Run {
   error?: string;
 }
 
-export default function TTSStreamPage() {
+export default function TTSStreamPanel() {
   const [text, setText] = useState("");
   // 生效音色 ID：由 VoicePicker（仅 2.0 代际 + 自定义/复刻输入）上报
   const [voice, setVoice] = useState("");
@@ -166,19 +163,6 @@ export default function TTSStreamPage() {
 
   return (
     <>
-      <PageHeader
-        title="流式合成"
-        description="单向流式低延迟合成，20 语种、8 方言、字级时间戳字幕与语音指令"
-        actions={
-          <Link
-            to="/history"
-            className="inline-flex items-center gap-1 text-xs text-fg-2 transition-colors duration-150 hover:text-accent"
-          >
-            历史产物
-            <ArrowUpRight size={13} strokeWidth={1.75} />
-          </Link>
-        }
-      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* 左：文本编辑区 */}
