@@ -17,6 +17,7 @@ import (
 
 func (s *Server) Handler() http.Handler {
 	r := gin.Default()
+	gin.SetMode(gin.ReleaseMode)
 	api := r.Group("/api")
 	{
 		api.GET("/health", func(c *gin.Context) { ok(c, gin.H{"status": "ok"}) })

@@ -6,6 +6,7 @@ import {
   AudioLines,
   Calculator,
   History,
+  Info,
   Languages,
   LayoutDashboard,
   Menu,
@@ -34,8 +35,9 @@ const nav = [
   { to: "/translate", label: "机器翻译", desc: "32 语种互译与术语定制", icon: Languages },
   { to: "/minutes", label: "语音妙记", desc: "音视频转结构化纪要", icon: NotebookPen },
   { to: "/history", label: "历史", desc: "全部任务与产物", icon: History },
-  { to: "/settings", label: "设置", desc: "凭证与连接", icon: Settings },
   { to: "/pricing", label: "计费测算", desc: "刊例价用量估算", icon: Calculator },
+  { to: "/settings", label: "设置", desc: "凭证与连接", icon: Settings },
+  { to: "/about", label: "关于", desc: "产品与使用指南", icon: Info },
 ];
 
 const themeOrder: ThemePref[] = ["system", "dark", "light"];
