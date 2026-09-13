@@ -23,6 +23,7 @@ const toolName: Record<string, string> = {
   asr: "语音识别",
   podcast: "播客工坊",
   separate: "人声分离",
+  translate: "机器翻译",
 };
 
 const filters = [
@@ -33,6 +34,7 @@ const filters = [
   { value: "asr", label: "语音识别" },
   { value: "podcast", label: "播客工坊" },
   { value: "separate", label: "人声分离" },
+  { value: "translate", label: "机器翻译" },
 ];
 
 export default function HistoryPage() {

@@ -19,6 +19,7 @@
 | 语音识别 ASR | 豆包语音（openspeech） | 本地文件走 sauc nostream WS 直发；公网 URL 走录音文件识别三版本（标准异步 / 闲时 / 极速同步） | 同上 |
 | 语音播客 | 豆包语音播客大模型 | WebSocket V3，流式事件返回 | **APP ID + Access Token**（播客协议不支持新版 API Key，缺任一在凭证校验即拦下） |
 | 人声背景音分离 | AI MediaKit | REST 异步：提交任务 → 轮询 | 独立 MediaKit API Key（Bearer） |
+| 机器翻译 | 豆包机器翻译大模型（openspeech） | HTTP 同步（matx_translate） | APP ID + Access Token（或新版 API Key）；需开通 `volc.speech.mt` |
 
 已确认的关键决策：
 
@@ -60,7 +61,15 @@
 - 断点重试：连接中断后按已收轮次断点续传（文档原生支持）。
 - 服务端在收到 PodcastEnd 后**立即下载临时 audio_url 转存本地**，避免 1h 失效。
 
-### 2.4 AI MediaKit 人声背景音分离
+### 2.4 机器翻译大模型（matx_translate）
+
+- `POST https://openspeech.bytedance.com/api/v3/machine_translation/matx_translate`，`X-Api-Resource-Id: volc.speech.mt`，鉴权同语音三件套（新版 `X-Api-Key` 或旧版 `X-Api-App-Key` + `X-Api-Access-Key`）。
+- 请求体：`source_language`（缺省/空串 = 自动检测）、`target_language`（必填）、`text_list`（≤16 条、单条 ≤1024 Tokens）、`corpus`（术语：`glossary_list` 直传词典 / `glossary_table_id` / `glossary_table_name`，直传术语优先级高于术语表）。
+- 响应：`code`（20000000 成功；45000001 参数错误、45000130 载荷超限、55000001 服务内部错误）、`data.translation_list[]`（`translation` / `detected_source_language`（仅未指定源语言时返回）/ `usage`（prompt/completion/total tokens））。
+- 支持 32 语种（ISO 639-1 / BCP-47）：zh/en/ja/ko/fr/de/es/pt/ru/ar/it/nl/pl/ro/sv/da/nb/fi/hu/cs/hr/el/he/tr/uk/th/vi/id/ms/tl/hi/zh-Hant。工具层对语言代码做清单校验（退出码 2），正文按单条文本提交。
+- 计费（6561/1359370「豆包机器翻译模型」）：输入 1.8 元/百万 token、输出 5.4 元/百万 token；资源包 1.62/1.44/1.26 元/百万 token；试用 100 万 token / 半年。
+
+### 2.5 AI MediaKit 人声背景音分离
 - `POST https://mediakit.cn-beijing.volces.com/api/v1/tools/separate-voice`，`Authorization: Bearer <MediaKit API Key>`，body `{video_url|audio_url, scene: "Audio"|"Music"|"Drama"|"Narrate", output_format?}` → 返回 task_id。媒体字段二选一：按 URL 扩展名推断，常见视频扩展名走 `video_url`，其余走 `audio_url`。
 - scene 四场景轨道数不同：Audio（通用，人声+背景）、Music（音乐，人声+伴奏）双轨；Drama（短剧）、Narrate（口播）三轨（人声+音乐+音效）。
 - `output_format` 输出格式 aac/mp3/wav/m4a/flac：上游默认 aac，工具箱默认 mp3。
@@ -108,6 +117,7 @@ toolbox/
 │   │       ├── asr.go      # ASR：sauc nostream WS 直发 + submit/query 异步 + 工具编排
 │   │       ├── sauc/       # 官方 sauc 协议包（vendor 自 sauc_go demo：header/payload/编解码）
 │   │       ├── podcast.go  # 播客 WS 客户端、事件解析、断点重试
+│   │       ├── mt_client.go # 机器翻译 REST 客户端（matx_translate）
 │   │       └── mediakit.go # 人声分离 REST 客户端
 │   ├── service/            # 业务编排：CLI 与 Web 共用
 │   ├── task/               # goroutine 池、状态机、SQLite 持久化、取消
@@ -143,7 +153,7 @@ type TaskInput struct {
     Files  map[string]string // 上传文件落盘后的本地路径
 }
 type TaskOutput struct {
-    Artifacts []Artifact // kind: audio | transcript | dialog | subtitle；含 format/duration
+    Artifacts []Artifact // kind: audio | transcript | dialog | subtitle | translation；含 format/duration
     Summary   map[string]any // 展示用摘要（如对话轮次数）
 }
 ```
@@ -155,7 +165,7 @@ type TaskOutput struct {
 ## 6. 数据模型（SQLite + gorm）
 
 - `tasks`：`id`（UUID）、`provider`、`tool`、`status`（pending/running/succeeded/failed/canceled/interrupted）、`params`(JSON)、`progress`（0-100）、`progress_note`、`error`（映射后的中文消息 + 原始码）、`cost_ms`、`created_at/updated_at`。服务启动时将 running 置为 interrupted。
-- `artifacts`：`id`、`task_id`(索引)、`kind`（audio/transcript/dialog/subtitle）、`path`（data 目录相对路径）、`filename`、`format`、`size`、`duration_ms`、`meta`(JSON，如 ASR 分句、播客轮次索引)。
+- `artifacts`：`id`、`task_id`(索引)、`kind`（audio/transcript/dialog/subtitle/translation）、`path`（data 目录相对路径）、`filename`、`format`、`size`、`duration_ms`、`meta`(JSON，如 ASR 分句、播客轮次索引)。
 - `settings`：`key`、`value`(JSON)——运行时可改项：默认音色、默认播客音色对、并发任务数。
 
 凭证存 viper 配置文件 `~/.toolbox/config.yaml`（0600）：`volc.speech.app_id / access_token / api_key(可选)`、`volc.mediakit.api_key`、`server.port`、`data_dir`。
@@ -191,6 +201,7 @@ toolbox asr <file|--url> [--version standard|idle|flash] [--out text.txt] [--srt
 toolbox podcast <text|--file|--url> [--mode auto|script] [--script dialog.json]
                 [--speakers id1,id2] [--format mp3] [--out path]
 toolbox separate <url> [--scene audio|drama] [--out dir]
+toolbox translate <text|--file> [--from <code>] [--to <code>] [--terms "原词=译词"] [--table-id id] [--out path]
 toolbox run <provider>.<tool> [--param key=value ...]   # schema 驱动的通用入口
 toolbox config set <key> <value> / toolbox config list
 toolbox voices list                                      # 音色列表查询与缓存
@@ -212,8 +223,9 @@ toolbox voices list                                      # 音色列表查询与
 3. **语音识别**：拖拽上传或粘贴 URL，可选识别版本（标准/闲时/极速，后两者仅 URL）；结果按句展示（时间戳可点击跳播），导出 TXT/SRT。
 4. **播客工坊**：三步向导——内容输入（主题/长文本/网页/对话稿 四模式）→ 双人音色搭配（预设组合）→ 生成页「对话流」逐轮滚动 + 进度环 + 已生成时长；成品播放器。
 5. **人声分离**：输入音频/视频公网 URL（表单明确提示 MediaKit 需公网可访问地址，本地文件先上传对象存储）→ 四场景选择（通用/音乐双轨，短剧/口播三轨）+ 输出格式 → 多轨结果（每轨一行播放器、分别下载）；人声轨一键「送 ASR」（`artifact_input` 跨工具联动）。
-6. **历史**：任务表格（类型/状态/耗时筛选），行内重播、下载、删除、同参重跑；产物均有下载入口。
-7. **设置**：凭证配置 + 连接测试、默认参数、数据目录。
+6. **机器翻译**：原文编辑区（字数与 1024 Tokens 提示）+ 参数面板（源语言「自动检测」/目标语言 32 语种、一键交换、术语定制：直传术语与术语表）→ 译文卡片（一键复制 + `translation` 文本产物下载、token 用量与语言方向摘要）+ 计费测算页估算器。
+7. **历史**：任务表格（类型/状态/耗时筛选），行内重播、下载、删除、同参重跑；产物均有下载入口。
+8. **设置**：凭证配置 + 连接测试、默认参数、数据目录。
 
 视觉规范（M6 已落地，实现细节以 [design-system/toolbox/MASTER.md](../../../design-system/toolbox/MASTER.md) 为准）：
 
@@ -250,6 +262,7 @@ toolbox voices list                                      # 音色列表查询与
 4. **M4 播客** ✅：播客 WS 客户端（事件流、断点重试、audio_url 转存）；播客工坊页面。
 5. **M5 MediaKit 人声分离** ✅ + 工具联动（分离→ASR，`artifact_input` 通道）。
 6. **M6 产品化** ✅：设计系统（design-system/MASTER.md）、组件库、全站页面重做、WavePlayer 与全局播放条、双主题与响应式审计、`make dist` 交叉编译发布。
+7. **机器翻译** ✅：`matx_translate` REST 客户端与 translate 工具（32 语种校验、术语定制、`translation` 文本产物）；CLI `toolbox translate`、Web「机器翻译」页、计费测算估算器；需开通 `volc.speech.mt`。
 
 依赖技术清单（Go）：gin、gorm(+sqlite driver)、cobra、resty（HTTP 客户端）、viper、gorilla/websocket。
 前端：React 19、Vite、Tailwind CSS v4、TanStack Query、Zustand、Lucide、Fira Sans/Code（@fontsource 自托管）。

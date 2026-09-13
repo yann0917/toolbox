@@ -13,8 +13,8 @@ import (
 func TestNewRegistersTools(t *testing.T) {
 	svc := newTestService(t)
 	metas := svc.Registry().List()
-	if len(metas) != 6 {
-		t.Fatalf("registered tools = %d, want 6", len(metas))
+	if len(metas) != 7 {
+		t.Fatalf("registered tools = %d, want 7", len(metas))
 	}
 	if _, ok := svc.Registry().Get("volcengine", "tts"); !ok {
 		t.Error("volcengine.tts not found")

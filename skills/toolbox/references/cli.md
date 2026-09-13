@@ -9,6 +9,7 @@
 - [asr 语音识别](#asr-语音识别)
 - [podcast 播客生成](#podcast-播客生成)
 - [separate 人声背景音分离](#separate-人声背景音分离)
+- [translate 机器翻译](#translate-机器翻译)
 - [run 通用工具入口](#run-通用工具入口)
 - [voices 音色查询](#voices-音色查询)
 - [config 配置管理](#config-配置管理)
@@ -34,8 +35,8 @@
 }
 ```
 
-- `artifacts[].kind` 取值：`audio`（音频产物）、`transcript`（纯文本转写）、`subtitle`（SRT 字幕）、`dialog`（播客对话稿 JSON）。
-- 退出码：`0` 成功；`2` 用法/参数错误（不会消耗配额）；`3` 任务失败（上游报错，stderr 给中文原因）；`4` 凭证缺失或无效。
+- `artifacts[].kind` 取值：`audio`（音频产物）、`transcript`（纯文本转写）、`subtitle`（SRT 字幕）、`dialog`（播客对话稿 JSON）、`translation`（译文文本）。
+- 退出码：`0` 成功；`2` 用法/参数错误（含长度/载荷超限，不会消耗配额）；`3` 任务失败（上游报错，stderr 给中文原因）；`4` 凭证缺失或无效，或目标服务未开通（如机器翻译缺 `volc.speech.mt`）。
 - `artifacts[].path` 一律为绝对路径（含 `--out` 重定向与默认数据目录两种来源），可直接交给下游工具使用。
 - 未显式传 `--out` 时产物写入默认数据目录（`~/.toolbox/data`，可用 `config set data_dir` 修改）。
 - `--out` 传相对路径时按数据目录（默认 `~/.toolbox/data`）解析；产物 JSON 中仍返回绝对路径。
@@ -200,6 +201,34 @@ toolbox separate <url> [flags]
 - 分离为异步重计算任务：提交后自动轮询，单次最长等待 15 分钟（超时报任务失败，可重试）。
 - 凭证独立：需要 `volc.mediakit.api_key`（与语音三件套无关），缺失报凭证错误（退出码 4）。
 
+## translate 机器翻译
+
+```bash
+toolbox translate <text | --file path> [flags]
+```
+
+火山机器翻译大模型（官方 `/api/v3/machine_translation/matx_translate`，同步接口，秒级返回）：
+32 语种互译，源语言缺省自动检测；支持术语定制。译文落 `translation` 产物（txt），
+翻译后的文本在 JSON `summary.translation` 中也可直接读取。
+
+| flag | 默认 | 说明 |
+|---|---|---|
+| `--to` | `en` | 目标语言代码（32 语种：zh/en/ja/ko/fr/de/es/pt/ru/ar/it/nl/pl/ro/sv/da/nb/fi/hu/cs/hr/el/he/tr/uk/th/vi/id/ms/tl/hi/zh-Hant） |
+| `--from` | 空（自动检测） | 源语言代码，同上清单 |
+| `--terms` | 空 | 直传术语：`原词=译词`，逗号或换行分隔（优先级高于术语表） |
+| `--terms-file` | 空 | 从文件读术语，每行一条 `原词=译词` |
+| `--table-id` / `--table-name` | 空 | 术语管理平台的术语表 ID / 名称，二选一或同传 |
+| `--file` | — | 从文件读待翻译文本 |
+| `--out` | 数据目录自动命名 | 译文输出路径 |
+| `--json` | 关 | 机器可读输出 |
+
+- 官方限制：单条文本 ≤1024 Tokens、单次 1 条（toolbox 当前按单文本提交）；超限时上游返回 45000130，工具层映射为参数错误（退出码 2）并提示分段。实测中文约 1.4 字符/token，3000 字符左右即触限。
+- 需在火山控制台开通「机器翻译」服务（资源 ID `volc.speech.mt`）；未开通时上游返回 `requested resource not granted`，工具层识别为**退出码 4** 并提示去控制台开通（凭证本身有效，重试无意义）。
+- 需在火山控制台开通 `volc.speech.mt` 权限；凭证与语音三件套共用（新版 API Key 或 APP ID + Access Token）。
+- `summary` 结构：`translation`（译文文本）、`source_language` / `target_language`（回显）、
+  `detected_source_language`（自动检测时返回）、`char_count`、`terms_count`、
+  `prompt_tokens` / `completion_tokens` / `total_tokens`（Token 用量）。
+
 ## run 通用工具入口
 
 ```bash
@@ -207,7 +236,7 @@ toolbox run <provider>.<tool> [--param key=value ...] [--json]
 toolbox run <provider>.<tool> --help   # 动态查看该工具的参数 schema
 ```
 
-按注册表调用任意已注册工具（含后续新接入的平台），`--param` 按工具 schema 传参。上面四个快捷命令等价于 `toolbox run volcengine.tts` 等。
+按注册表调用任意已注册工具（含后续新接入的平台），`--param` 按工具 schema 传参。上面的快捷命令等价于 `toolbox run volcengine.tts` 等。
 
 ## voices 音色查询
 
@@ -230,9 +259,9 @@ toolbox config list                    # 查看配置（密钥打码显示）
 
 | key | 说明 |
 |---|---|
-| `volc.speech.app_id` | 火山引擎语音 APP ID（TTS/ASR/播客共用） |
+| `volc.speech.app_id` | 火山引擎语音 APP ID（TTS/ASR/播客/翻译共用） |
 | `volc.speech.access_token` | 语音 Access Token |
-| `volc.speech.api_key` | 新版控制台 API Key（仅 TTS/ASR 可用；播客必须 APP ID + Access Token） |
+| `volc.speech.api_key` | 新版控制台 API Key（TTS/ASR/翻译可用；播客必须 APP ID + Access Token） |
 | `volc.mediakit.api_key` | AI MediaKit API Key（人声分离） |
 | `server.port` | Web 端口，默认 8080 |
 | `data_dir` | 产物数据目录，默认 `~/.toolbox/data` |
@@ -251,6 +280,7 @@ toolbox serve [--port 8080]
 |---|---|---|
 | 鉴权失败（App ID / Token 错误） | 4 | 「凭证无效，请检查 config」 |
 | 未配置凭证 | 4 | 「先执行 toolbox config set …」 |
+| 目标服务未开通（如 `volc.speech.mt`） | 4 | 「去控制台开通对应服务」（重试无意义） |
 | 参数错误 / 长度超限 | 2 | 具体参数与限制 |
 | 内容审核拦截 | 3 | 「内容触发安全审核」 |
 | 额度/余额不足 | 3 | 「资源包额度不足」 |

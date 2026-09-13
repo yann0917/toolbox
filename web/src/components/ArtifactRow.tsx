@@ -8,6 +8,7 @@ const artifactLabel: Record<string, string> = {
   transcript: "转写文本",
   subtitle: "字幕",
   dialog: "对话稿",
+  translation: "译文文本",
 };
 
 const trackLabel: Record<string, string> = {

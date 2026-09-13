@@ -9,6 +9,9 @@ import (
 var (
 	ErrNoCred = errors.New("凭证未配置")
 	ErrAuth   = errors.New("凭证无效")
+	// ErrNotGranted 凭证有效但目标资源未开通（如机器翻译缺 volc.speech.mt）。
+	// 属「需去控制台开通」的配置类问题，与任务失败区分，避免上游重试。
+	ErrNotGranted = errors.New("服务未开通")
 )
 
 // SpeechCred 语音三件套（TTS/ASR/播客）共用凭证：新版 API Key 或旧版 AppID+AccessToken。

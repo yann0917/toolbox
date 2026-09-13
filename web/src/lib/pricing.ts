@@ -7,6 +7,7 @@
  *
  * 官方文档未给出「接口 ↔ 商品」的权威映射；同步合成（tts，V1 接口）的计费商品
  * 随音色代际而异，测算时按口径选择，页面已注明「以账单为准」。
+ * 机器翻译对应「豆包机器翻译模型」：输入 1.8 元/百万 token、输出 5.4 元/百万 token（1359370）。
  */
 
 export const PRICE_SNAPSHOT_DATE = "2026-09-13";
@@ -181,6 +182,42 @@ export function estimatePodcast(inputChars: number, audioSeconds: number): numbe
     (outputTokens * PODCAST_PRICES.outputAudioPerMillion) / 1_000_000
   );
 }
+
+/* ---------------- 机器翻译（豆包机器翻译模型，按 token） ---------------- */
+
+/** 豆包机器翻译模型：按 token 计费（官方 6561/1359370 计费说明，快照 2026-09-13）。
+ *  后付费输入 1.8 元/百万 token、输出 5.4 元/百万 token；资源包折算最低 1.26。
+ *  文本 token 折算类似文本大模型：字符数 ≈ token 数（分词策略不同会有偏差），
+ *  故估算按「输入字符数 = 输入 token、输出按译文长度」口径，页面已注明为粗估。 */
+export const PRICE_MT: PriceItem = {
+  label: "豆包机器翻译模型",
+  unit: "百万token",
+  postpaid: [{ price: 1.8 }],
+  packs: [
+    { size: 20000, price: 32400 }, // 200 亿 token → 1.62 元/百万
+    { size: 100000, price: 144000 }, // 1000 亿 token → 1.44 元/百万
+    { size: 200000, price: 252000 }, // 2000 亿 token → 1.26 元/百万
+  ],
+  trial: "100 万 token（不区分输入输出）/ 半年",
+  note: "输入 1.8 元/百万 token、输出 5.4 元/百万 token（后付费）；资源包仅按总量抵扣",
+};
+
+/** 输出 token 相对输入的用户体感：译文长度波动，按 1:1 粗估（官方未给固定倍率）。 */
+export const MT_OUTPUT_TOKEN_RATIO = 1;
+
+/**
+ * 机器翻译费用粗估（元）：输入 + 输出分别按 token 单价计。
+ * @param inputChars  原文字符数（≈输入 token 数）
+ * @param outputChars 译文长度（≈输出 token 数）
+ */
+export function estimateMT(inputChars: number, outputChars: number): number {
+  const inputTokens = inputChars;
+  const outputTokens = outputChars * MT_OUTPUT_TOKEN_RATIO;
+  return (inputTokens * PRICE_MT.postpaid[0].price) / 1_000_000 + (outputTokens * MT_OUTPUT_PRICE) / 1_000_000;
+}
+
+/** 输出单价（元/百万 token）：后付费与输入不同价，独立列出以免误用 PriceItem 首项。 */
+export const MT_OUTPUT_PRICE = 5.4;
 
 /* ---------------- 人声分离（AI MediaKit 音频工具） ---------------- */
 

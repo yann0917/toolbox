@@ -49,7 +49,7 @@ func absArtifactPath(dataDir, p string) string {
 	return filepath.Join(dataDir, p)
 }
 
-// exitCodeFor 将执行错误映射为退出码：2 参数、4 凭证、3 任务失败。
+// exitCodeFor 将执行错误映射为退出码：2 参数、4 凭证/未开通、3 任务失败。
 func exitCodeFor(err error) int {
 	switch {
 	case err == nil:
@@ -58,9 +58,14 @@ func exitCodeFor(err error) int {
 		strings.Contains(err.Error(), "仅支持"),
 		strings.Contains(err.Error(), "暂不支持"),     // ASR 音频格式错误（audioFormatOf）/ 播客 format 枚举
 		strings.Contains(err.Error(), "speakers"), // 播客音色数量校验（「speakers 需要恰好 2 个」）
-		strings.Contains(err.Error(), "对话稿"):      // 播客对话稿解析错误（「对话稿格式错误」）/ 输入互斥文案
+		strings.Contains(err.Error(), "对话稿"),      // 播客对话稿解析错误（「对话稿格式错误」）/ 输入互斥文案
+		strings.Contains(err.Error(), "术语格式错误"),   // 翻译术语解析错误（mtParseTerms）
+		// 长度/载荷超限属参数类（契约：长度超限 → 2，请求未被推理、不消耗配额）：
+		// 机器翻译 45000130、长文本合成 10 万字符预检。
+		strings.Contains(err.Error(), "载荷超限"), strings.Contains(err.Error(), "超出长度限制"):
 		return 2
-	case errors.Is(err, volcengine.ErrNoCred), errors.Is(err, volcengine.ErrAuth):
+	case errors.Is(err, volcengine.ErrNoCred), errors.Is(err, volcengine.ErrAuth),
+		errors.Is(err, volcengine.ErrNotGranted): // 资源未开通（如机器翻译缺 volc.speech.mt）→ 配置类问题，重试无意义
 		return 4
 	default:
 		return 3

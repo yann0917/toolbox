@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react";
-import { Calculator, Coins, ExternalLink, Info, Mic, Podcast, Waves } from "lucide-react";
+import { Calculator, Coins, ExternalLink, Info, Languages, Mic, Podcast, Waves } from "lucide-react";
 import {
   bestPackUnitPrice,
   CHARS_PER_AUDIO_MINUTE,
+  estimateMT,
   estimatePodcast,
+  MT_OUTPUT_PRICE,
   PODCAST_PRICES,
   postpaidUnitPrice,
   PRICE_ASR_FLASH,
   PRICE_ASR_IDLE,
   PRICE_ASR_STANDARD,
+  PRICE_MT,
   PRICE_SNAPSHOT_DATE,
   PRICING_SOURCES,
   PRICE_SYNC_BY_CALLS,
@@ -248,6 +251,68 @@ function PodcastEstimator() {
   );
 }
 
+/** 机器翻译估算：原文与译文长度（输入/输出 token 分别计价）。 */
+function MTEstimator() {
+  const [inputChars, setInputChars] = useState(2000);
+  const [outputChars, setOutputChars] = useState(2000);
+  const inputTokens = Math.max(0, inputChars);
+  const outputTokens = Math.max(0, outputChars);
+  const inputCost = (inputTokens * PRICE_MT.postpaid[0].price) / 1_000_000;
+  const outputCost = (outputTokens * MT_OUTPUT_PRICE) / 1_000_000;
+  const cost = estimateMT(inputTokens, outputTokens);
+
+  return (
+    <Card>
+      <CardHeader
+        title="机器翻译测算"
+        icon={<Languages size={15} strokeWidth={1.75} />}
+        aside={<span className="micro">按 token</span>}
+      />
+      <CardBody className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="原文（字符）" hint="字符数 ≈ 输入 token">
+            {({ id }) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                step={500}
+                value={String(inputChars)}
+                onChange={(e) => setInputChars(Number(e.target.value || 0))}
+              />
+            )}
+          </Field>
+          <Field label="译文（字符）" hint="译文长度 ≈ 输出 token">
+            {({ id }) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                step={500}
+                value={String(outputChars)}
+                onChange={(e) => setOutputChars(Number(e.target.value || 0))}
+              />
+            )}
+          </Field>
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+          <p>
+            <MicroLabel>估算合计</MicroLabel>
+            <span className="ml-2 font-mono text-xl tabular-nums text-fg">{fmtYuan(cost)}</span>
+          </p>
+          <p className="text-[11px] text-muted">
+            输入 {fmtYuan(inputCost)} + 输出 {fmtYuan(outputCost)} · 试用额度 {PRICE_MT.trial}
+          </p>
+        </div>
+        <p className="text-[11px] text-muted">
+          输入 {PRICE_MT.postpaid[0].price} 元/百万 token、输出 {MT_OUTPUT_PRICE} 元/百万 token；
+          文本 token 折算类似文本大模型（字符数 ≈ token 数，不同语言分词不同会有偏差），实际以账单为准。
+        </p>
+      </CardBody>
+    </Card>
+  );
+}
+
 /** 人声分离估算：输入文件时长 × 0.07 元/分钟（AI MediaKit 音频工具）。 */
 function SeparateEstimator() {
   const [minutes, setMinutes] = useState(10);
@@ -290,7 +355,7 @@ function SeparateEstimator() {
 
 export default function PricingPage() {
   const allItems = useMemo(
-    () => [PRICE_SYNC_BY_MINUTE, PRICE_SYNC_BY_CHARS, PRICE_SYNC_BY_CALLS, PRICE_TTS_20, PRICE_ASR_STANDARD, PRICE_ASR_FLASH, PRICE_ASR_IDLE],
+    () => [PRICE_SYNC_BY_MINUTE, PRICE_SYNC_BY_CHARS, PRICE_SYNC_BY_CALLS, PRICE_TTS_20, PRICE_ASR_STANDARD, PRICE_ASR_FLASH, PRICE_ASR_IDLE, PRICE_MT],
     [],
   );
 
@@ -320,9 +385,10 @@ export default function PricingPage() {
       <div className="space-y-4">
         <TTSCompare />
 
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <ASREstimator />
           <PodcastEstimator />
+          <MTEstimator />
           <SeparateEstimator />
         </div>
 
@@ -360,6 +426,7 @@ export default function PricingPage() {
               字符口径：1 个汉字/字母/标点/空格均算 1 字符（UTF-8 字节数不影响计费）；时长口径：累加每次调用语音时长精确至毫秒折算小时。
               本页估算不含资源包抵扣顺序、试用额度与并发增购，后付费按小时出账；官方未给出「接口 ↔ 商品」映射，
               同步合成（V1 接口）的计费商品随音色代际而异，测算已按口径拆分并以账单为准；
+              机器翻译按 token 计费（输入/输出分别计价，资源包按总量抵扣），
               人声分离属 AI MediaKit 音频工具计费体系，随文档更新于 2026.07。
             </p>
           </CardBody>

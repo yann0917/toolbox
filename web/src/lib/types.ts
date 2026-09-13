@@ -29,10 +29,19 @@ export interface Task {
     billed_chars?: number;
     chunks?: number;
     audio_url_fallback?: boolean;
+    /** 机器翻译（translate） */
+    translation?: string;
+    source_language?: string;
+    target_language?: string;
+    detected_source_language?: string;
+    terms_count?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
   };
 }
 
-export type ArtifactKind = "audio" | "transcript" | "dialog" | "subtitle";
+export type ArtifactKind = "audio" | "transcript" | "dialog" | "subtitle" | "translation";
 
 export interface Artifact {
   id: string;

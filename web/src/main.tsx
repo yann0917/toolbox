@@ -9,6 +9,7 @@ import PricingPage from "./pages/PricingPage";
 import ASRPage from "./pages/ASRPage";
 import PodcastPage from "./pages/PodcastPage";
 import SeparatePage from "./pages/SeparatePage";
+import TranslatePage from "./pages/TranslatePage";
 import HistoryPage from "./pages/HistoryPage";
 import SettingsPage from "./pages/SettingsPage";
 import { ToastProvider } from "./ui";
@@ -39,6 +40,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="/asr" element={<ASRPage />} />
               <Route path="/podcast" element={<PodcastPage />} />
               <Route path="/separate" element={<SeparatePage />} />
+              <Route path="/translate" element={<TranslatePage />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
