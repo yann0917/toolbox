@@ -142,11 +142,14 @@ toolbox run <provider>.<tool> --help   # 动态查看该工具的参数 schema
 ## voices 音色查询
 
 ```bash
-toolbox voices list [--json]           # 列出可用音色（分类、性别）
-toolbox voices preview <voice_id>      # 播放音色试听样本（规划中，当前未实现）
+toolbox voices list [--json] [--scene 场景] [--lang 语种]
+# 场景：通用场景/角色扮演/视频配音/教育场景/客服场景/有声阅读/外语音色/多情感/趣味口音
+# 语种：中文/美式英语/日语/韩语……（完整词表见 --json 输出 languages 字段）
 ```
 
-音色表内置于程序，离线可用。
+音色表内置于程序（来源：火山引擎在线音色列表 6561/1257544，2.0+1.0 全量 500+ 条，离线可用）。
+`--json` 输出对象数组，字段：`id/name/gender/scenes/languages/dialects/tags/emotions/generation/note`；
+人类可读模式每行 `ID 名称 性别 场景·语种`，计数走 stderr。
 
 ## config 配置管理
 

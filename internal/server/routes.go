@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/yann0917/toolbox/internal/config"
+	"github.com/yann0917/toolbox/internal/provider/volcengine"
 	"github.com/yann0917/toolbox/internal/store"
 )
 
@@ -270,5 +271,5 @@ func (s *Server) testConnection(c *gin.Context) {
 }
 
 func (s *Server) listVoices(c *gin.Context) {
-	ok(c, gin.H{"voices": BuiltinVoices()})
+	ok(c, gin.H{"voices": volcengine.Voices()})
 }

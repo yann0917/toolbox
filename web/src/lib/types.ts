@@ -46,6 +46,13 @@ export interface TaskDetail {
 
 export interface Voice {
   id: string;
-  gender: string;
-  category: string;
+  name: string;
+  gender: string; // 男 | 女
+  scenes: string[];
+  languages: string[];
+  dialects?: string[]; // 中文方言
+  tags?: string[]; // 特殊标签（抖音同款/豆包同款…）
+  emotions?: string[]; // 1.0 多情感音色支持的情感
+  generation: string; // 2.0 | 1.0
+  note?: string;
 }

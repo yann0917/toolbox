@@ -37,6 +37,7 @@
 - HTTP 非流式：`POST /api/v1/tts`，返回完整音频。适合短文本与 CLI。
 - WebSocket 双向流式 V3：`wss://.../api/v3/tts/bidirection`，文本流式输入、音频流式输出。首期任务化使用（服务端收完音频落盘），协议封装保留流式能力。
 - 关键参数：`voice_type`（音色 ID）、语速/音量、`audio_params.format`（mp3/wav/pcm/ogg_opus）。
+- 音色表：内嵌官方在线音色列表（6561/1257544）解析产物 `internal/provider/volcengine/voices.json`——2.0（含外语）+1.0 全量 500+ 条，字段 id/name/gender/scenes/languages/dialects/tags/emotions/generation/note；S2S/SC 端到端实时模型专用音色（jupiter/saturn 前缀）非 TTS 可用、已排除。Web TTS/播客页与 CLI `voices list` 均支持按场景/语种筛选；个别外语音色标注「仅支持单向流，双向流调用会直接报错」（notes 字段）。
 
 ### 2.2 ASR 语音识别
 - 录音文件识别（异步 HTTP）：`POST /api/v3/auc/bigmodel/submit`（body 传音频公网 URL）→ `POST /api/v3/auc/bigmodel/query` 轮询。Resource-Id `volc.seedasr.auc`。上限 4 小时。

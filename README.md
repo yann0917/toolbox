@@ -51,7 +51,7 @@ make all
 ./bin/toolbox asr --url "https://example.com/talk.mp3" --version flash --json   # 极速版，同步秒级返回
 ./bin/toolbox asr --url "https://example.com/talk.mp3" --version idle  --json   # 闲时版，低价、24h 内完成
 
-# 主题一键生成双人播客（--speakers 必填：两个音色 ID 逗号分隔，可用 toolbox voices list 查询）
+# 主题一键生成双人播客（--speakers 必填：两个音色 ID 逗号分隔，用 toolbox voices list 查询，支持 --scene/--lang 筛选）
 ./bin/toolbox podcast "用五分钟聊聊本地大模型" \
   --speakers zh_female_cancan_mars_bigtts,zh_male_dayixiansheng_v2_saturn_bigtts \
   --out /tmp/podcast.mp3 --json

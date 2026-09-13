@@ -23,6 +23,7 @@ import { apiBase, fetchJSON } from "../lib/api";
 import { formatTime } from "../lib/player";
 import type { Artifact, TaskDetail, TaskStatus, Voice } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
+import { ALL_FILTER, VoiceFilterSelects, matchVoice, type VoiceFilters } from "../components/VoiceFilters";
 import {
   Button,
   Card,
@@ -191,6 +192,8 @@ export default function PodcastPage() {
   const [script, setScript] = useState("");
   const [voiceA, setVoiceA] = useState("");
   const [voiceB, setVoiceB] = useState("");
+  // 音色筛选：播客默认聚焦中文音色，减少 500+ 音色的翻找
+  const [voiceFilter, setVoiceFilter] = useState<VoiceFilters>({ scene: ALL_FILTER, lang: "中文" });
   const [format, setFormat] = useState("mp3");
   const [headMusic, setHeadMusic] = useState(false);
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -215,33 +218,40 @@ export default function PodcastPage() {
     retry: 1,
   });
   const voiceList = useMemo(() => voicesQuery.data?.voices ?? [], [voicesQuery.data]);
+  // 场景/语种筛选后的音色按主场景分组渲染
+  const filteredVoices = useMemo(() => voiceList.filter((v) => matchVoice(v, voiceFilter)), [voiceList, voiceFilter]);
   const voiceGroups = useMemo(() => {
-    const byCategory = new Map<string, Voice[]>();
-    for (const v of voiceList) {
-      const list = byCategory.get(v.category) ?? [];
+    const byScene = new Map<string, Voice[]>();
+    for (const v of filteredVoices) {
+      const key = v.scenes[0];
+      const list = byScene.get(key) ?? [];
       list.push(v);
-      byCategory.set(v.category, list);
+      byScene.set(key, list);
     }
-    return [...byCategory.entries()];
-  }, [voiceList]);
-  const voiceAVal = voiceA || voiceList[0]?.id || "";
-  const voiceBVal = voiceB || voiceList[1]?.id || voiceList[0]?.id || "";
+    return [...byScene.entries()].sort(([a], [b]) => a.localeCompare(b, "zh"));
+  }, [filteredVoices]);
+  // 默认人选：筛选结果内优先一女一男（对话感最强），缺失时退前两席
+  const fallbackA = filteredVoices.find((v) => v.gender === "女")?.id ?? filteredVoices[0]?.id ?? "";
+  const fallbackB =
+    filteredVoices.find((v) => v.gender === "男")?.id ?? filteredVoices[1]?.id ?? filteredVoices[0]?.id ?? "";
+  const voiceAVal = voiceA || fallbackA;
+  const voiceBVal = voiceB || fallbackB;
+  const filteredEmpty = voiceList.length > 0 && filteredVoices.length === 0;
 
-  /* 快速搭配：优先同一类别下的「一女 + 一男」（对话感最强），否则退回列表里前两个不同音色 */
+  /* 筛选变化后，被筛掉的已选音色回到筛选结果首位（提交值与下拉所见一致） */
+  useEffect(() => {
+    if (voiceA && !filteredVoices.some((v) => v.id === voiceA)) setVoiceA("");
+    if (voiceB && !filteredVoices.some((v) => v.id === voiceB)) setVoiceB("");
+  }, [filteredVoices, voiceA, voiceB]);
+
+  /* 快速搭配：筛选结果内优先「一女 + 一男」，否则退回前两个不同音色 */
   const quickPair = useMemo<[string, string] | null>(() => {
-    const byCategory = new Map<string, { f?: string; m?: string }>();
-    for (const v of voiceList) {
-      const slot = byCategory.get(v.category) ?? {};
-      if (v.gender === "女" && !slot.f) slot.f = v.id;
-      if (v.gender === "男" && !slot.m) slot.m = v.id;
-      byCategory.set(v.category, slot);
-    }
-    for (const slot of byCategory.values()) {
-      if (slot.f && slot.m) return [slot.f, slot.m];
-    }
-    const uniq = [...new Set(voiceList.map((v) => v.id))];
+    const f = filteredVoices.find((v) => v.gender === "女");
+    const m = filteredVoices.find((v) => v.gender === "男" && v.id !== f?.id);
+    if (f && m) return [f.id, m.id];
+    const uniq = [...new Set(filteredVoices.map((v) => v.id))];
     return uniq.length >= 2 ? [uniq[0], uniq[1]] : null;
-  }, [voiceList]);
+  }, [filteredVoices]);
 
   /* WS 事件驱动当前任务进度与对话流（detail.text 非空即一轮对话）；终态拉详情拿产物与 summary */
   useEffect(() => {
@@ -350,7 +360,7 @@ export default function PodcastPage() {
   const urlHint = mode === "url" && url.trim() !== "" && !/^https?:\/\//i.test(url.trim())
     ? "链接需以 http:// 或 https:// 开头，否则抓取正文会失败。"
     : "";
-  const voicesUsable = voiceAVal !== "" && voiceBVal !== "";
+  const voicesUsable = voiceAVal !== "" && voiceBVal !== "" && !filteredEmpty;
   const canSubmit = !contentEmpty && !scriptError && voicesUsable;
   const charCount = Array.from(text).length;
 
@@ -549,7 +559,7 @@ export default function PodcastPage() {
                   <Skeleton key={i} className="h-28 w-full" />
                 ))}
               </div>
-            ) : !voicesUsable ? (
+            ) : voicesQuery.isError || voiceList.length === 0 ? (
               <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-sm)] border border-line bg-raise-2 p-3">
                 <AlertTriangle size={15} strokeWidth={1.75} className="shrink-0 text-warn" />
                 <span className="min-w-0 flex-1 text-xs text-fg-2">
@@ -562,6 +572,12 @@ export default function PodcastPage() {
               </div>
             ) : (
               <>
+                <div className="space-y-3">
+                  <VoiceFilterSelects value={voiceFilter} onChange={setVoiceFilter} voices={voiceList} />
+                  {filteredEmpty && (
+                    <p className="text-[11px] text-warn">当前筛选无匹配音色，请调整场景/语种。</p>
+                  )}
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {([
                     { role: "A", val: voiceAVal, set: setVoiceA, desc: "speakers[0]" },
@@ -574,12 +590,12 @@ export default function PodcastPage() {
                       </div>
                       <Field label={`${s.role} 音色`} hint={`当前：${s.val}`}>
                         {({ id, ...rest }) => (
-                          <Select id={id} value={s.val} onChange={(e) => s.set(e.target.value)} {...rest}>
-                            {voiceGroups.map(([category, list]) => (
-                              <optgroup key={category} label={category}>
+                          <Select id={id} value={s.val} onChange={(e) => s.set(e.target.value)} {...rest} disabled={filteredEmpty}>
+                            {voiceGroups.map(([scene, list]) => (
+                              <optgroup key={scene} label={scene}>
                                 {list.map((v) => (
                                   <option key={v.id} value={v.id}>
-                                    {v.id} · {v.gender}
+                                    {v.name} · {v.gender} · {v.languages[0]}
                                   </option>
                                 ))}
                               </optgroup>
