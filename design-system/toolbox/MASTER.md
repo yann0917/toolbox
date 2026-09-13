@@ -135,7 +135,7 @@
 | `Button` | 变体 `primary`(琥珀实底) / `secondary`(描边) / `ghost` / `danger`；尺寸 sm/md；`loading` 态内置 spinner 且禁点；hover 只变底色/描边色，**不位移** |
 | `Field` | **刻印微标签**(micro) + 控件 + hint/error 行；label 必须与控件关联（htmlFor） |
 | `Input` / `Textarea` / `Select` | 底 `raise-2`、边框 `line-strong`、focus 时边框转 accent + 2px accent 外环（`focus-visible`，不可移除） |
-| `Card` | 可选 header（标题 + 右侧操作）；内部 16/24 间距；hover 只提亮边框/底色 |
+| `Card` | 可选 header（标题 + 右侧操作）；内部 16/24 间距；hover 只提亮边框/底色。**`CardBody` 自带 `p-4`，传 `className` 是叠加不是覆盖**——只传 `space-y-*` 控制纵向节奏；改 padding 须显式传 `px-*`/`py-*`/`p-*`（曾因默认值被覆盖导致全站卡片掉内边距，勿回退） |
 | `Badge` | 任务状态：pending 灰 / running 琥珀(带呼吸点) / succeeded 绿 / failed 红 / canceled 灰；**不得只靠颜色**（带文字） |
 | `ProgressBar` | 细条(2px)，底 `raise-2`、条 accent；running 时条上叠加流光 |
 | `Skeleton` | 与最终布局同形状的骨架（**内容区不用 spinner**），`animate-pulse` |

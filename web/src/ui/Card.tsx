@@ -27,8 +27,17 @@ export function CardHeader({ title, icon, aside, className = "" }: CardHeaderPro
   );
 }
 
-export function CardBody({ children, className = "p-4" }: { children: ReactNode; className?: string }) {
-  return <div className={className}>{children}</div>;
+export interface CardBodyProps {
+  children: ReactNode;
+  /** 与默认内边距 p-4 叠加（不覆盖）：一般传 space-y-* 控制子元素纵向节奏。
+   *  需要改 padding 时显式传 px-、py- 或 p- 系列覆盖（Tailwind 保证 px-、py- 优先于 p-）。 */
+  className?: string;
+}
+
+/** 卡体：默认内边距 p-4（MASTER 规格「内部 16 间距」）。
+ *  注意 className 是叠加而非替换——默认值写进参数默认值会被整体覆盖，曾导致全站卡片掉内边距。 */
+export function CardBody({ children, className = "" }: CardBodyProps) {
+  return <div className={`p-4 ${className}`}>{children}</div>;
 }
 
 export function Skeleton({ className = "" }: { className?: string }) {

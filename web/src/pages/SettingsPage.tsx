@@ -141,7 +141,7 @@ export default function SettingsPage() {
               )
             }
           />
-          <CardBody className="space-y-4 p-4">
+          <CardBody className="space-y-4">
             <p className="text-xs text-muted">
               用于语音合成、语音识别与播客生成。配置项：<code className="font-mono text-fg-2">volc.speech.app_id</code>、
               <code className="font-mono text-fg-2">volc.speech.access_token</code>（或新版
@@ -173,7 +173,7 @@ export default function SettingsPage() {
               </span>
             }
           />
-          <CardBody className="space-y-4 p-4">
+          <CardBody className="space-y-4">
             <p className="text-xs text-muted">
               仅用于人声背景音分离，与火山语音是两套独立凭证。配置项：
               <code className="font-mono text-fg-2">volc.mediakit.api_key</code>。
@@ -196,7 +196,7 @@ export default function SettingsPage() {
 
       <Card className="mt-4">
         <CardHeader title="连通性测试" icon={<PlugZap size={15} strokeWidth={1.75} />} />
-        <CardBody className="space-y-3 p-4">
+        <CardBody className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <Button
               variant="secondary"
@@ -223,7 +223,7 @@ export default function SettingsPage() {
 
       <Card className="mt-4">
         <CardHeader title="存储位置" icon={<FolderOpen size={15} strokeWidth={1.75} />} />
-        <CardBody className="space-y-2 p-4">
+        <CardBody className="space-y-2">
           <MicroLabel>数据目录</MicroLabel>
           <p className="break-all font-mono text-xs text-fg-2">{data?.data_dir ?? "—"}</p>
           <p className="text-[11px] text-muted">

@@ -128,7 +128,7 @@ export default function SeparatePage() {
 
       <Card>
         <CardHeader title="输入与参数" icon={<Waves size={15} strokeWidth={1.75} />} />
-        <CardBody className="space-y-5 p-4">
+        <CardBody className="space-y-5">
           <Field
             label="音视频 URL"
             required
@@ -212,7 +212,7 @@ export default function SeparatePage() {
               </>
             }
           />
-          <CardBody className="space-y-2.5 p-4">
+          <CardBody className="space-y-2.5">
             <ProgressBar value={task.progress} active={running} />
             <p className="text-xs text-muted">{task.progress_note || "—"}</p>
             {task.error && <p className="text-xs text-danger break-words">{task.error}</p>}
@@ -246,7 +246,7 @@ export default function SeparatePage() {
             icon={<Waves size={15} strokeWidth={1.75} />}
             aside={<span className="micro">{artifacts.length} 轨</span>}
           />
-          <CardBody className="space-y-2 p-4">
+          <CardBody className="space-y-2">
             {artifacts.map((a) => {
               const track = a.meta?.track;
               return (
