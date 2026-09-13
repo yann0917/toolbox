@@ -43,7 +43,7 @@
 - 录音文件识别（异步 HTTP）：`POST /api/v3/auc/bigmodel/submit`（body 传音频公网 URL）→ `POST /api/v3/auc/bigmodel/query` 轮询。Resource-Id `volc.seedasr.auc`。上限 4 小时。
 - 录音文件识别闲时版（6561/2608618 提交、6561/2608619 查询）：`POST /api/v3/auc/bigmodel/idle/submit` → `/api/v3/auc/bigmodel/idle/query`，Resource-Id `volc.bigasr.auc_idle`。仅收 `audio.url`（`audio.format` 必填、按 URL 扩展名推断），闲时算力执行、任务通常 24h 内完成；查询请求体为空 JSON、任务 ID 经 `X-Api-Request-Id` 头回传，`result` 非空即完成，X-Api-Status-Code 4 开头为终态错误、2/5 开头视为中间态继续轮询（工具层 24h 兜底，10s 起步退避至 2min）。
 - 录音文件识别极速版（6561/2608628）：`POST /api/v3/auc/bigmodel/recognize/flash`，Resource-Id `volc.bigasr.auc_turbo`。同步返回完整识别结果（≤100MB / 2 小时），无需轮询。
-- 三版本统一 `version` 参数：`standard`（默认）/ `idle` / `flash`；本地文件仅标准版可用（闲时/极速协议只收 URL）。闲时/极速版 language 位于 `audio` 对象（与 sauc WS 的 audio.language 一致），热词经 `request.corpus.context`（JSON 字符串 `{"hotwords":[{"word":"..."}]}`）直传。
+- 三版本统一 `version` 参数：`standard`（默认）/ `idle` / `flash`；本地文件仅标准版可用（闲时/极速协议只收 URL）。闲时/极速版 language 位于 `audio` 对象（与 sauc WS 的 audio.language 一致），**language 默认留空 = 自动识别中文/英文及上海/闽南/四川/陕西/粤语方言**，可选 25 语种（zh-CN/en-US/…/yue-CN）；热词经 `request.corpus.context`（JSON 字符串 `{"hotwords":[{"word":"..."}]}`）直传。
 - 识别（WebSocket，sauc 协议）：**本地文件识别走官方 sauc 协议（vendor 自 sauc_go demo）`bigmodel_nostream` 端点直发音频、全速分片**，绕开「火山访问不到本地文件」的问题，无需公网 URL。
 - 产物：全文文本 + 分句（带时间戳），支持导出 TXT / SRT。
 - 增值参数：热词（hotwords 直传）、上下文 context。

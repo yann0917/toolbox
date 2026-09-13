@@ -30,6 +30,7 @@ import {
   Input,
   PageHeader,
   ProgressBar,
+  Select,
   Skeleton,
   StatusBadge,
   Tabs,
@@ -53,6 +54,35 @@ const URL_HINT: Record<ASRVersion, string> = {
 };
 
 type Segment = { text: string; start_ms: number; end_ms: number };
+
+/** 录音文件识别支持语种（与后端 ParamSpecs 同词表）；留空 = 自动识别中文/英文及常见方言 */
+const ASR_LANGUAGES: { value: string; label: string }[] = [
+  { value: "zh-CN", label: "中文普通话" },
+  { value: "en-US", label: "英语" },
+  { value: "ja-JP", label: "日语" },
+  { value: "id-ID", label: "印尼语" },
+  { value: "es-MX", label: "西班牙语" },
+  { value: "pt-BR", label: "葡萄牙语" },
+  { value: "de-DE", label: "德语" },
+  { value: "fr-FR", label: "法语" },
+  { value: "ko-KR", label: "韩语" },
+  { value: "fil-PH", label: "菲律宾语" },
+  { value: "ms-MY", label: "马来语" },
+  { value: "th-TH", label: "泰语" },
+  { value: "ar-SA", label: "阿拉伯语" },
+  { value: "it-IT", label: "意大利语" },
+  { value: "bn-BD", label: "孟加拉语" },
+  { value: "el-GR", label: "希腊语" },
+  { value: "nl-NL", label: "荷兰语" },
+  { value: "ru-RU", label: "俄语" },
+  { value: "tr-TR", label: "土耳其语" },
+  { value: "vi-VN", label: "越南语" },
+  { value: "pl-PL", label: "波兰语" },
+  { value: "ro-RO", label: "罗马尼亚语" },
+  { value: "ne-NP", label: "尼泊尔语" },
+  { value: "uk-UA", label: "乌克兰语" },
+  { value: "yue-CN", label: "粤语" },
+];
 
 /** 任务运行态：只保留界面需要的字段，不伪造完整 Task DTO */
 interface Run {
@@ -99,7 +129,7 @@ export default function ASRPage() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [url, setUrl] = useState("");
-  const [language, setLanguage] = useState("zh-CN");
+  const [language, setLanguage] = useState("");
   const [hotwords, setHotwords] = useState("");
   const [taskId, setTaskId] = useState<string | null>(null);
   const [run, setRun] = useState<Run | null>(null);
@@ -172,11 +202,9 @@ export default function ASRPage() {
 
   const submit = useMutation({
     mutationFn: async () => {
-      const lang = language.trim();
       const params: Record<string, unknown> = {
         srt: true,
-        // 标准版维持旧行为兜底 zh-CN；闲时/极速版留空即交由服务端自动识别语种/方言
-        language: version === "standard" || artifactMode ? lang || "zh-CN" : lang,
+        language: language.trim(), // 留空 = 服务端自动识别语种/方言
       };
       if (!artifactMode) params.version = version;
       if (hotwords.trim()) params.hotwords = hotwords.trim();
@@ -463,15 +491,21 @@ export default function ASRPage() {
             aside={<span className="micro">volcengine · asr</span>}
           />
           <CardBody className="space-y-4">
-            <Field label="语言" hint={version === "standard" ? "默认 zh-CN" : "默认 zh-CN，留空自动识别语种"}>
+            <Field label="语言" hint="留空自动识别：中文、英文及上海/闽南/四川/陕西/粤语方言">
               {({ id, ...rest }) => (
-                <Input
+                <Select
                   id={id}
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
-                  placeholder="zh-CN"
                   {...rest}
-                />
+                >
+                  <option value="">自动识别</option>
+                  {ASR_LANGUAGES.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label} {l.value}
+                    </option>
+                  ))}
+                </Select>
               )}
             </Field>
             <Field label="热词" aside="可选" hint="逗号分隔，用于提升专有名词识别率">

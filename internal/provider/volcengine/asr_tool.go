@@ -75,6 +75,36 @@ func (t *ASRTool) Meta() provider.ToolMeta {
 	}
 }
 
+// asrLanguages 录音文件识别支持语种（官方文档 6561/2608618/2608628 同款词表）。
+// language 留空时模型自动识别：中文、英文、上海话、闽南话、四川话、陕西话、粤语。
+var asrLanguages = []provider.ParamOption{
+	{Value: "zh-CN", Label: "中文普通话"},
+	{Value: "en-US", Label: "英语"},
+	{Value: "ja-JP", Label: "日语"},
+	{Value: "id-ID", Label: "印尼语"},
+	{Value: "es-MX", Label: "西班牙语"},
+	{Value: "pt-BR", Label: "葡萄牙语"},
+	{Value: "de-DE", Label: "德语"},
+	{Value: "fr-FR", Label: "法语"},
+	{Value: "ko-KR", Label: "韩语"},
+	{Value: "fil-PH", Label: "菲律宾语"},
+	{Value: "ms-MY", Label: "马来语"},
+	{Value: "th-TH", Label: "泰语"},
+	{Value: "ar-SA", Label: "阿拉伯语"},
+	{Value: "it-IT", Label: "意大利语"},
+	{Value: "bn-BD", Label: "孟加拉语"},
+	{Value: "el-GR", Label: "希腊语"},
+	{Value: "nl-NL", Label: "荷兰语"},
+	{Value: "ru-RU", Label: "俄语"},
+	{Value: "tr-TR", Label: "土耳其语"},
+	{Value: "vi-VN", Label: "越南语"},
+	{Value: "pl-PL", Label: "波兰语"},
+	{Value: "ro-RO", Label: "罗马尼亚语"},
+	{Value: "ne-NP", Label: "尼泊尔语"},
+	{Value: "uk-UA", Label: "乌克兰语"},
+	{Value: "yue-CN", Label: "粤语"},
+}
+
 func (t *ASRTool) ParamSpecs() []provider.ParamSpec {
 	return []provider.ParamSpec{
 		{Key: "version", Label: "识别版本", Type: provider.ParamEnum, Default: asrVersionStandard, Group: "输入",
@@ -87,8 +117,9 @@ func (t *ASRTool) ParamSpecs() []provider.ParamSpec {
 			Placeholder: "公网音频 URL，与上传文件二选一", Group: "输入"},
 		{Key: "hotwords", Label: "热词", Type: provider.ParamString,
 			Placeholder: "逗号分隔热词", Group: "输入"},
-		{Key: "language", Label: "语言", Type: provider.ParamString,
-			Default: "zh-CN", Group: "输入"},
+		{Key: "language", Label: "语言", Type: provider.ParamEnum, Default: "", Group: "输入",
+			Options:     asrLanguages,
+			Placeholder: "留空自动识别（中文/英文/常见方言）"},
 		{Key: "srt", Label: "生成 SRT 字幕", Type: provider.ParamBool,
 			Default: true, Group: "输出"},
 	}

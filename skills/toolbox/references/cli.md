@@ -69,7 +69,7 @@ toolbox asr <file> [--url audio_url] [flags]
 | `--out` | 数据目录自动命名 | 转写文本输出路径 |
 | `--srt` | 开 | 额外产出 `.srt` 字幕（artifacts 中 kind=`subtitle`）；关闭传 `--srt=false` |
 | `--hotwords` | 空 | 逗号分隔热词，提升专有名词准确率 |
-| `--language` | `zh-CN` | 识别语言，可传其他语言代码 |
+| `--language` | （空） | 识别语言，留空自动识别（中文/英文/常见方言）；可选 zh-CN/en-US/ja-JP/yue-CN 等 25 种 |
 | `--url` | — | 公网音频 URL，走异步批量通道 |
 | `--json` | 关 | 机器可读输出 |
 
