@@ -1,12 +1,8 @@
 import { useId } from "react";
-import type {
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
-} from "react";
+import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
 
-const control =
+/** 输入凹槽统一材质：Input / Textarea / Select 触发钮共用。 */
+export const control =
   "w-full rounded-[var(--radius-sm)] bg-inset border border-line-strong text-fg " +
   "shadow-[inset_0_1px_2px_var(--inset-shadow)] " +
   "placeholder:text-muted transition-colors duration-150 " +
@@ -24,20 +20,6 @@ export function Input({ className = "", ...rest }: InputHTMLAttributes<HTMLInput
 
 export function Textarea({ className = "", ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...rest} className={`${control} p-3 text-sm leading-relaxed resize-y ${className}`} />;
-}
-
-export function Select({ className = "", children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select {...rest} className={`${control} h-9 pl-3 pr-8 text-sm cursor-pointer appearance-none bg-no-repeat ${className}`}
-      style={{
-        backgroundImage:
-          "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c6c76' stroke-width='2' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>\")",
-        backgroundPosition: "right 8px center",
-      }}
-    >
-      {children}
-    </select>
-  );
 }
 
 export interface FieldProps {

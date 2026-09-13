@@ -25,7 +25,7 @@ import {
   SYNC_SEGMENT_CHARS,
   type PriceItem,
 } from "../lib/pricing";
-import { Card, CardBody, CardHeader, Field, Input, MicroLabel, PageHeader } from "../ui";
+import { Card, CardBody, CardHeader, Field, Input, MicroLabel, PageHeader, Select } from "../ui";
 
 /** 金额格式化：<1 元保留 3 位有效小数，否则 2 位。 */
 function fmtYuan(v: number): string {
@@ -163,16 +163,11 @@ function ASREstimator() {
         <div className="grid grid-cols-2 gap-2">
           <Field label="识别版本">
             {({ id }) => (
-              <select
-                id={id}
-                value={version}
-                onChange={(e) => setVersion(e.target.value as typeof version)}
-                className="h-10 w-full rounded-[var(--radius-sm)] border border-line bg-inset px-3 text-sm text-fg outline-none transition-colors duration-150 focus:border-accent"
-              >
+              <Select id={id} value={version} onChange={(e) => setVersion(e.target.value as typeof version)}>
                 <option value="standard">标准版（2.3 元/小时）</option>
                 <option value="flash">极速版（4.5 元/小时）</option>
                 <option value="idle">闲时版（1.2 元/小时）</option>
-              </select>
+              </Select>
             )}
           </Field>
           <Field label="音频时长（小时）">

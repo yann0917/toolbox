@@ -26,6 +26,7 @@ import {
   MicroLabel,
   PageHeader,
   ProgressBar,
+  Select,
   Skeleton,
   StatusBadge,
   useToast,
@@ -230,30 +231,18 @@ export default function MinutesPage() {
               <div className="grid grid-cols-2 gap-2">
                 <Field label="源语种">
                   {({ id, ...rest }) => (
-                    <select
-                      id={id}
-                      value={sourceLang}
-                      onChange={(e) => setSourceLang(e.target.value)}
-                      className="h-9 w-full cursor-pointer appearance-none rounded-[var(--radius-sm)] border border-line bg-inset px-3 font-mono text-sm text-fg transition-colors duration-150 focus:border-accent"
-                      {...rest}
-                    >
+                    <Select id={id} value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} {...rest}>
                       <option value="zh_cn">中文</option>
                       <option value="en_us">英语</option>
-                    </select>
+                    </Select>
                   )}
                 </Field>
                 <Field label="翻译目标语">
                   {({ id, ...rest }) => (
-                    <select
-                      id={id}
-                      value={targetLang}
-                      onChange={(e) => setTargetLang(e.target.value)}
-                      className="h-9 w-full cursor-pointer appearance-none rounded-[var(--radius-sm)] border border-line bg-inset px-3 font-mono text-sm text-fg transition-colors duration-150 focus:border-accent"
-                      {...rest}
-                    >
+                    <Select id={id} value={targetLang} onChange={(e) => setTargetLang(e.target.value)} {...rest}>
                       <option value="en_us">英语</option>
                       <option value="zh_cn">中文</option>
-                    </select>
+                    </Select>
                   )}
                 </Field>
               </div>
