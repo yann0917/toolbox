@@ -31,7 +31,7 @@ type Task struct {
 type Artifact struct {
 	ID         string `gorm:"primaryKey;size:36"`
 	TaskID     string `gorm:"size:36;index"`
-	Kind       string `gorm:"size:16"` // audio|transcript|dialog|subtitle|translation
+	Kind       string `gorm:"size:16"` // audio|transcript|dialog|subtitle|translation|minutes
 	Path       string // data 目录相对路径；_out 重定向时可为绝对路径
 	Filename   string `gorm:"size:255"`
 	Format     string `gorm:"size:16"`

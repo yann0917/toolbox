@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, AudioLines, Clock, Languages, Mic, Podcast, Waves } from "lucide-react";
+import { ArrowUpRight, AudioLines, Clock, Languages, Mic, NotebookPen, Podcast, Waves } from "lucide-react";
 import { fetchJSON } from "../lib/api";
 import type { Task } from "../lib/types";
 import { Card, CardHeader, EmptyState, PageHeader, Skeleton, StatusBadge } from "../ui";
@@ -11,6 +11,7 @@ const tools = [
   { to: "/podcast", name: "播客工坊", desc: "生成双人对话播客", icon: Podcast, tool: "podcast" },
   { to: "/separate", name: "人声分离", desc: "人声与背景音分轨输出", icon: Waves, tool: "separate" },
   { to: "/translate", name: "机器翻译", desc: "32 语种互译，术语定制", icon: Languages, tool: "translate" },
+  { to: "/minutes", name: "语音妙记", desc: "音视频转纪要：总结/待办/章节", icon: NotebookPen, tool: "minutes" },
 ];
 
 function StatTile({ label, value, hint, loading }: { label: string; value: string; hint?: string; loading?: boolean }) {
@@ -105,7 +106,7 @@ export default function WorkbenchPage() {
           hint="近 100 条任务累计"
           loading={isLoading}
         />
-        <StatTile label="工具入口" value={String(tools.length)} hint="七个能力 · 五个入口" loading={isLoading} />
+        <StatTile label="工具入口" value={String(tools.length)} hint="八个能力 · 六个入口" loading={isLoading} />
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">

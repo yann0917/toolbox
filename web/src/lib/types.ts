@@ -38,10 +38,19 @@ export interface Task {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    /** 语音妙记（minutes）；segments/duration_ms/upstream_task_id 与上方共用 */
+    minutes_title?: string;
+    summary_text?: string;
+    translation_text?: string;
+    features?: string[];
+    sentences?: number;
+    speakers_count?: number;
+    todos?: { content: string; executor: string[]; start_time: number }[];
+    chapters?: { title: string; summary: string; start_time: number; end_time: number }[];
   };
 }
 
-export type ArtifactKind = "audio" | "transcript" | "dialog" | "subtitle" | "translation";
+export type ArtifactKind = "audio" | "transcript" | "dialog" | "subtitle" | "translation" | "minutes";
 
 export interface Artifact {
   id: string;

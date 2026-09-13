@@ -20,6 +20,7 @@
 | 语音播客 | 豆包语音播客大模型 | WebSocket V3，流式事件返回 | **APP ID + Access Token**（播客协议不支持新版 API Key，缺任一在凭证校验即拦下） |
 | 人声背景音分离 | AI MediaKit | REST 异步：提交任务 → 轮询 | 独立 MediaKit API Key（Bearer） |
 | 机器翻译 | 豆包机器翻译大模型（openspeech） | HTTP 同步（matx_translate） | APP ID + Access Token（或新版 API Key）；需开通 `volc.speech.mt` |
+| 语音妙记 | 豆包语音妙记大模型（openspeech） | HTTP 异步：提交 URL → 轮询 → 结果转存 | APP ID + Access Token（或新版 API Key；demo 双头为兼容写法，实测单键可用） |
 
 已确认的关键决策：
 
@@ -68,6 +69,15 @@
 - 响应：`code`（20000000 成功；45000001 参数错误、45000130 载荷超限、55000001 服务内部错误）、`data.translation_list[]`（`translation` / `detected_source_language`（仅未指定源语言时返回）/ `usage`（prompt/completion/total tokens））。
 - 支持 32 语种（ISO 639-1 / BCP-47）：zh/en/ja/ko/fr/de/es/pt/ru/ar/it/nl/pl/ro/sv/da/nb/fi/hu/cs/hr/el/he/tr/uk/th/vi/id/ms/tl/hi/zh-Hant。工具层对语言代码做清单校验（退出码 2），正文按单条文本提交。
 - 计费（6561/1359370「豆包机器翻译模型」）：输入 1.8 元/百万 token、输出 5.4 元/百万 token；资源包 1.62/1.44/1.26 元/百万 token；试用 100 万 token / 半年。
+
+### 2.6 语音妙记（lark minutes）
+
+- `POST /api/v3/auc/lark/submit` + `POST /api/v3/auc/lark/query`，`X-Api-Resource-Id: volc.lark.minutes`，鉴权同语音三件套：新版 `X-Api-Key` 单键即可（官方文档 6561/1798094 只列双头、demo 双头为兼容写法，实测单键可用），缺省回退 `X-Api-App-Key` + `X-Api-Access-Key`。
+- 提交：`Input.Offline.FileURL`（<1G、≤2 小时，FileType 按扩展名推断 audio/video）+ `Params`（`AllActivate` 打包计费、`SourceLang` zh_cn/en_us、转写必开 + 说话人识别/数量/热词/字级时间戳、附加功能至少一项：翻译（TargetLang）/提取（todo_list、question_answer）/全文总结/章节总结）。成功判定：响应头 `X-Api-Status-Code == 20000000`，任务 ID 取响应体 `Data.TaskID`。
+- 查询：body `{"TaskID":...}`，`X-Api-Request-Id` 回传任务 ID；`Data.Status` running/success/failed，失败看 `Data.ErrCode`（4004/4801-4813 任务级错误）；中间态响应头码 20000001/20000002；任务 24h 未结束自动丢弃。
+- 结果：`Data.Result` 五类文件 URL（24h 有效）——转写（分句含说话人/时间戳）、章节、结构化（待办/问答）、全文总结（title+paragraph）、翻译；工具层查询成功后立即下载转存（与播客/分离同策略），转写另转 txt 全文（说话人前缀）与 SRT。
+- 工具映射：`volcengine.minutes`（CLI `toolbox minutes`，Web「语音妙记」页）；轮询 30s 起步退避至 2min、总超时 2h。
+- 计费（6561/1359370）：音频文件转写 1.8 元/小时（必选）+ 音频结构集合 0.5 元/小时或单功能 0.11 元/小时×N。
 
 ### 2.5 AI MediaKit 人声背景音分离
 - `POST https://mediakit.cn-beijing.volces.com/api/v1/tools/separate-voice`，`Authorization: Bearer <MediaKit API Key>`，body `{video_url|audio_url, scene: "Audio"|"Music"|"Drama"|"Narrate", output_format?}` → 返回 task_id。媒体字段二选一：按 URL 扩展名推断，常见视频扩展名走 `video_url`，其余走 `audio_url`。
@@ -224,8 +234,9 @@ toolbox voices list                                      # 音色列表查询与
 4. **播客工坊**：三步向导——内容输入（主题/长文本/网页/对话稿 四模式）→ 双人音色搭配（预设组合）→ 生成页「对话流」逐轮滚动 + 进度环 + 已生成时长；成品播放器。
 5. **人声分离**：输入音频/视频公网 URL（表单明确提示 MediaKit 需公网可访问地址，本地文件先上传对象存储）→ 四场景选择（通用/音乐双轨，短剧/口播三轨）+ 输出格式 → 多轨结果（每轨一行播放器、分别下载）；人声轨一键「送 ASR」（`artifact_input` 跨工具联动）。
 6. **机器翻译**：原文编辑区（字数与 1024 Tokens 提示）+ 参数面板（源语言「自动检测」/目标语言 32 语种、一键交换、术语定制：直传术语与术语表）→ 译文卡片（一键复制 + `translation` 文本产物下载、token 用量与语言方向摘要）+ 计费测算页估算器。
-7. **历史**：任务表格（类型/状态/耗时筛选），行内重播、下载、删除、同参重跑；产物均有下载入口。
-8. **设置**：凭证配置 + 连接测试、默认参数、数据目录。
+7. **语音妙记**：URL 输入 + 参数面板（附加功能多选至少一项、源/目标语种、说话人数、热词、打包计费）→ 结果区（全文总结、待办列表、章节时间轴、翻译文本、转写预览、产物行）+ 计费测算页估算器。
+8. **历史**：任务表格（类型/状态/耗时筛选），行内重播、下载、删除、同参重跑；产物均有下载入口。
+9. **设置**：凭证配置 + 连接测试、默认参数、数据目录。
 
 视觉规范（M6 已落地，实现细节以 [design-system/toolbox/MASTER.md](../../../design-system/toolbox/MASTER.md) 为准）：
 
@@ -263,6 +274,7 @@ toolbox voices list                                      # 音色列表查询与
 5. **M5 MediaKit 人声分离** ✅ + 工具联动（分离→ASR，`artifact_input` 通道）。
 6. **M6 产品化** ✅：设计系统（design-system/MASTER.md）、组件库、全站页面重做、WavePlayer 与全局播放条、双主题与响应式审计、`make dist` 交叉编译发布。
 7. **机器翻译** ✅：`matx_translate` REST 客户端与 translate 工具（32 语种校验、术语定制、`translation` 文本产物）；CLI `toolbox translate`、Web「机器翻译」页、计费测算估算器；需开通 `volc.speech.mt`。
+8. **语音妙记** ✅：lark submit/query 客户端与 minutes 工具（附加功能至少一项校验、转写转 txt/SRT、总结/待办/章节解析进 summary、结果 24h 链接立即转存）；CLI `toolbox minutes`、Web「语音妙记」页、计费测算估算器；鉴权同语音三件套（X-Api-Key 单键可用）。
 
 依赖技术清单（Go）：gin、gorm(+sqlite driver)、cobra、resty（HTTP 客户端）、viper、gorilla/websocket。
 前端：React 19、Vite、Tailwind CSS v4、TanStack Query、Zustand、Lucide、Fira Sans/Code（@fontsource 自托管）。

@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
-import { Calculator, Coins, ExternalLink, Info, Languages, Mic, Podcast, Waves } from "lucide-react";
+import { Calculator, Coins, ExternalLink, Info, Languages, Mic, NotebookPen, Podcast, Waves } from "lucide-react";
 import {
   bestPackUnitPrice,
   CHARS_PER_AUDIO_MINUTE,
+  estimateMinutes,
   estimateMT,
   estimatePodcast,
+  MINUTES_PRICE,
   MT_OUTPUT_PRICE,
   PODCAST_PRICES,
   postpaidUnitPrice,
@@ -313,6 +315,76 @@ function MTEstimator() {
   );
 }
 
+/** 语音妙记估算：时长 ×（转写必选 + 结构按打包/按功能数）。 */
+function MinutesEstimator() {
+  const [minutes, setMinutes] = useState(60);
+  const [featureCount, setFeatureCount] = useState(2);
+  const [allActivate, setAllActivate] = useState(true);
+  const cost = estimateMinutes(minutes, featureCount, allActivate);
+  const structureCost = estimateMinutes(minutes, featureCount, allActivate) - (Math.max(0, minutes) / 60) * MINUTES_PRICE.transcriptionPerHour;
+
+  return (
+    <Card>
+      <CardHeader
+        title="语音妙记测算"
+        icon={<NotebookPen size={15} strokeWidth={1.75} />}
+        aside={<span className="micro">按小时</span>}
+      />
+      <CardBody className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="音视频时长（分钟）">
+            {({ id }) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                step={10}
+                value={String(minutes)}
+                onChange={(e) => setMinutes(Number(e.target.value || 0))}
+              />
+            )}
+          </Field>
+          <Field label="附加功能数" hint="总结/待办/问答/章节/翻译">
+            {({ id }) => (
+              <Input
+                id={id}
+                type="number"
+                min={1}
+                max={5}
+                value={String(featureCount)}
+                onChange={(e) => setFeatureCount(Number(e.target.value || 1))}
+              />
+            )}
+          </Field>
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-2">
+          <input
+            type="checkbox"
+            checked={allActivate}
+            onChange={(e) => setAllActivate(e.target.checked)}
+            className="size-4 cursor-pointer accent-accent"
+          />
+          打包计费（结构按集合价）
+        </label>
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+          <p>
+            <MicroLabel>估算合计</MicroLabel>
+            <span className="ml-2 font-mono text-xl tabular-nums text-fg">{fmtYuan(cost)}</span>
+          </p>
+          <p className="text-[11px] text-muted">
+            转写 {fmtYuan(cost - structureCost)} + 结构 {fmtYuan(structureCost)}
+          </p>
+        </div>
+        <p className="text-[11px] text-muted">
+          转写 {MINUTES_PRICE.transcriptionPerHour} 元/小时（必选）+ 结构集合 {MINUTES_PRICE.structureBundlePerHour} 元/小时
+          或单功能 {MINUTES_PRICE.structureSinglePerHour} 元/小时 × N（功能 ≥2 时打包更划算）；
+          视频价格官方未单列，按音频口径估算，以账单为准。
+        </p>
+      </CardBody>
+    </Card>
+  );
+}
+
 /** 人声分离估算：输入文件时长 × 0.07 元/分钟（AI MediaKit 音频工具）。 */
 function SeparateEstimator() {
   const [minutes, setMinutes] = useState(10);
@@ -385,10 +457,11 @@ export default function PricingPage() {
       <div className="space-y-4">
         <TTSCompare />
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <ASREstimator />
           <PodcastEstimator />
           <MTEstimator />
+          <MinutesEstimator />
           <SeparateEstimator />
         </div>
 

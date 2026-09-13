@@ -39,10 +39,12 @@ type ASRNostreamReq struct {
 	Hotwords string // 可选，直传（Request.Corpus.Context，官方结构 jsonstring）
 }
 
+// ASRSegment 分句时间戳。json tag 与前端/CLI 契约一致（summary.segments 小写下划线）：
+// 无 tag 时序列化为 Go 字段名（Text/StartMS），曾导致 ASR 页分句文本渲染为空。
 type ASRSegment struct {
-	Text    string
-	StartMS int64
-	EndMS   int64
+	Text    string `json:"text"`
+	StartMS int64  `json:"start_ms"`
+	EndMS   int64  `json:"end_ms"`
 }
 
 // ASRNostreamResp 识别结果。

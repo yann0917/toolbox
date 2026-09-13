@@ -8,7 +8,7 @@ import (
 )
 
 // RegisterAll 将火山引擎的全部工具注册进 registry。
-// 凭证缺失时 TTS/ASR/播客/翻译仍注册（Run 时再报凭证错误）；分离工具用 MediaKit apiKey
+// 凭证缺失时 TTS/ASR/播客/翻译/妙记仍注册（Run 时再报凭证错误）；分离工具用 MediaKit apiKey
 // （与语音三件套凭证体系独立），同样缺失仍注册（Run 时再报错）。
 func RegisterAll(reg *provider.Registry, cfg config.Config, dataDir string) error {
 	cred := SpeechCred{
@@ -22,6 +22,7 @@ func RegisterAll(reg *provider.Registry, cfg config.Config, dataDir string) erro
 	asrErr := reg.Register(NewASRTool(cred, dataDir))
 	podErr := reg.Register(NewPodcastTool(cred, dataDir))
 	mtErr := reg.Register(NewTranslateTool(cred, dataDir))
+	minErr := reg.Register(NewMinutesTool(cred, dataDir))
 	sepErr := reg.Register(NewSeparateTool(cfg.Volc.MediaKit.APIKey, dataDir))
-	return errors.Join(ttsErr, longErr, streamErr, asrErr, podErr, mtErr, sepErr)
+	return errors.Join(ttsErr, longErr, streamErr, asrErr, podErr, mtErr, minErr, sepErr)
 }

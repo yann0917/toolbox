@@ -219,6 +219,34 @@ export function estimateMT(inputChars: number, outputChars: number): number {
 /** 输出单价（元/百万 token）：后付费与输入不同价，独立列出以免误用 PriceItem 首项。 */
 export const MT_OUTPUT_PRICE = 5.4;
 
+/* ---------------- 语音妙记（豆包语音妙记模型，按小时） ---------------- */
+
+/** 妙记计费（官方 6561/1359370，快照 2026-09-13）：
+ *  音频文件转写为必选功能 1.8 元/小时；音频结构（总结/待办/章节等附加功能）
+ *  单功能 0.11 元/小时可叠加，或集合 0.5 元/小时二选一。
+ *  AllActivate=true 按打包价（对应结构集合口径，页面注明为推断）；视频价格官方未单列，按音频口径估算。 */
+export const MINUTES_PRICE = {
+  /** 转写（必选）：元/小时 */
+  transcriptionPerHour: 1.8,
+  /** 音频结构-单功能：元/小时/功能 */
+  structureSinglePerHour: 0.11,
+  /** 音频结构-集合（打包）：元/小时 */
+  structureBundlePerHour: 0.5,
+  trial: "以控制台为准",
+};
+
+/** 妙记估算（元）：时长（分钟）×（转写 + 结构计费口径）。
+ * @param minutes    音视频时长
+ * @param featureCount 附加功能数
+ * @param allActivate   是否打包计费（true 按结构集合价） */
+export function estimateMinutes(minutes: number, featureCount: number, allActivate: boolean): number {
+  const h = Math.max(0, minutes) / 60;
+  const structure = allActivate
+    ? MINUTES_PRICE.structureBundlePerHour
+    : Math.max(1, featureCount) * MINUTES_PRICE.structureSinglePerHour;
+  return h * (MINUTES_PRICE.transcriptionPerHour + structure);
+}
+
 /* ---------------- 人声分离（AI MediaKit 音频工具） ---------------- */
 
 /** 人声背景音分离：按输入文件时长计费（官方 6448/2486469，快照 2026-09-13）。

@@ -24,6 +24,7 @@ const toolName: Record<string, string> = {
   podcast: "播客工坊",
   separate: "人声分离",
   translate: "机器翻译",
+  minutes: "语音妙记",
 };
 
 const filters = [
@@ -35,6 +36,7 @@ const filters = [
   { value: "podcast", label: "播客工坊" },
   { value: "separate", label: "人声分离" },
   { value: "translate", label: "机器翻译" },
+  { value: "minutes", label: "语音妙记" },
 ];
 
 export default function HistoryPage() {

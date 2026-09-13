@@ -25,6 +25,7 @@ func newRootCmd() *cobra.Command {
 		newPodcastCommand(),
 		newSeparateCommand(),
 		newTranslateCommand(),
+		newMinutesCommand(),
 		newServeCommand(),
 	)
 	return root

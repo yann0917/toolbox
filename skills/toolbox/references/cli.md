@@ -10,6 +10,7 @@
 - [podcast 播客生成](#podcast-播客生成)
 - [separate 人声背景音分离](#separate-人声背景音分离)
 - [translate 机器翻译](#translate-机器翻译)
+- [minutes 语音妙记](#minutes-语音妙记)
 - [run 通用工具入口](#run-通用工具入口)
 - [voices 音色查询](#voices-音色查询)
 - [config 配置管理](#config-配置管理)
@@ -35,7 +36,7 @@
 }
 ```
 
-- `artifacts[].kind` 取值：`audio`（音频产物）、`transcript`（纯文本转写）、`subtitle`（SRT 字幕）、`dialog`（播客对话稿 JSON）、`translation`（译文文本）。
+- `artifacts[].kind` 取值：`audio`（音频产物）、`transcript`（纯文本转写）、`subtitle`（SRT 字幕）、`dialog`（播客对话稿 JSON）、`translation`（译文文本）、`minutes`（妙记纪要 JSON：总结/章节/结构化/翻译）。
 - 退出码：`0` 成功；`2` 用法/参数错误（含长度/载荷超限，不会消耗配额）；`3` 任务失败（上游报错，stderr 给中文原因）；`4` 凭证缺失或无效，或目标服务未开通（如机器翻译缺 `volc.speech.mt`）。
 - `artifacts[].path` 一律为绝对路径（含 `--out` 重定向与默认数据目录两种来源），可直接交给下游工具使用。
 - 未显式传 `--out` 时产物写入默认数据目录（`~/.toolbox/data`，可用 `config set data_dir` 修改）。
@@ -229,6 +230,34 @@ toolbox translate <text | --file path> [flags]
   `detected_source_language`（自动检测时返回）、`char_count`、`terms_count`、
   `prompt_tokens` / `completion_tokens` / `total_tokens`（Token 用量）。
 
+## minutes 语音妙记
+
+```bash
+toolbox minutes <url> [flags]
+```
+
+语音妙记（官方 `/api/v3/auc/lark/submit` + `/api/v3/auc/lark/query`，资源 `volc.lark.minutes`）：
+提交公网音视频 URL，异步生成结构化纪要。转写必产（带说话人，落 txt 全文与 SRT 字幕）；
+附加功能至少一项，否则上游提交失败。生成耗时与音视频时长正相关（分钟级，工具层 30s 起步退避轮询，2h 兜底）。
+
+| flag | 默认 | 说明 |
+|---|---|---|
+| `--features` | `summary` | 附加功能逗号分隔，至少一项：`summary` 全文总结 / `todo` 待办 / `qa` 问答 / `chapter` 章节 / `translation` 翻译 |
+| `--lang` | `zh_cn` | 源语种：`zh_cn` / `en_us` |
+| `--target-lang` | `en_us` | 翻译目标语（features 含 translation 时生效） |
+| `--speakers` | `0` | 说话人数，0 自动识别 |
+| `--hotwords` | 空 | 逗号分隔热词 |
+| `--all-activate` | 开 | 打包计费；`--all-activate=false` 按所选功能汇总计费 |
+| `--word-timestamps` | 关 | 需要字级时间序列 |
+| `--out-dir` | 数据目录 | 结果输出目录（产物 `<uuid>_<类型>.<ext>`） |
+| `--json` | 关 | 机器可读输出 |
+
+- 官方限制：文件 <1G、时长 ≤2 小时；仅收公网 URL（音频 MP3/WAV/AAC/FLAC/OGG、视频 MP4/AVI/MKV/MOV/FLV/WMV，按扩展名自动推断 FileType）；任务 24h 未结束自动丢弃。
+- 产物：`transcript`（说话人前缀全文 txt）+ `subtitle`（SRT）必产；开启的功能另落 `minutes` JSON（summary/chapter/extraction/translation）。
+- `summary` 结构：`minutes_title` / `summary_text`（全文总结）、`todos`（待办：content/executor/start_time）、`chapters`（章节：title/summary/start_time/end_time）、`translation_text`（翻译纯文本）、`segments`（带说话人前缀分句）、`features`、`sentences` / `speakers_count` / `duration_ms`、`upstream_task_id`。
+- 凭证同语音三件套：新版 API Key 或 APP ID + Access Token 均可（服务端两种鉴权都接受，demo 双头为兼容写法）。
+- 计费：转写 1.8 元/小时（必选）+ 音频结构（集合 0.5 元/小时或单功能 0.11 元/小时×N）。
+
 ## run 通用工具入口
 
 ```bash
@@ -259,7 +288,7 @@ toolbox config list                    # 查看配置（密钥打码显示）
 
 | key | 说明 |
 |---|---|
-| `volc.speech.app_id` | 火山引擎语音 APP ID（TTS/ASR/播客/翻译共用） |
+| `volc.speech.app_id` | 火山引擎语音 APP ID（TTS/ASR/播客/翻译/妙记共用；播客必须 APP ID + Token，其余支持新版 API Key 单键） |
 | `volc.speech.access_token` | 语音 Access Token |
 | `volc.speech.api_key` | 新版控制台 API Key（TTS/ASR/翻译可用；播客必须 APP ID + Access Token） |
 | `volc.mediakit.api_key` | AI MediaKit API Key（人声分离） |
@@ -281,6 +310,7 @@ toolbox serve [--port 8080]
 | 鉴权失败（App ID / Token 错误） | 4 | 「凭证无效，请检查 config」 |
 | 未配置凭证 | 4 | 「先执行 toolbox config set …」 |
 | 目标服务未开通（如 `volc.speech.mt`） | 4 | 「去控制台开通对应服务」（重试无意义） |
+| 妙记任务失败（ErrCode 4801-4813） | 3 | 「空音频/url 无效/时长超限」等中文原因 |
 | 参数错误 / 长度超限 | 2 | 具体参数与限制 |
 | 内容审核拦截 | 3 | 「内容触发安全审核」 |
 | 额度/余额不足 | 3 | 「资源包额度不足」 |
