@@ -25,19 +25,8 @@
 - **语音合成三通道**：同步 / 流式 / 长文本以 Tab 切换，每通道附计费说明（按场景与费用选择）
 - **计费测算**：火山语音刊例价快照（2026-09-13），三通道同量对比 + ASR/播客/机器翻译/语音妙记估算器，以账单为准
 - **工作台**：真实运行统计（任务数/成功率/累计耗时）+ 最近任务
-- **波形播放器**：自研 `WavePlayer` —— WebAudio 解码真实峰值、canvas 波形、已播段着色、点击/拖拽定位、mono 时间码
-- **全局播放条**：跨页面常驻，同一时刻只播一路音频；历史页与各工具页的结果都可直接试听
+- **试听**：自研波形播放器 + 全局播放条，历史页与各工具页的产物可直接播放、下载
 - **工具联动**：人声分离页的人声轨可「送 ASR 识别」——产物直接作为识别输入，无需公网 URL
-- **组件库**：`web/src/ui/` 统一组件（按钮/字段/卡片/徽标/进度/骨架/空态/Toast/对话框/分段控件/波形播放器），页面不再手写样式
-- **设计规范**：[design-system/toolbox/MASTER.md](design-system/toolbox/MASTER.md)（色彩/字体/间距/组件/反模式/交付检查表），基于 ui-ux-pro-max 校正定稿
-
-## 开发状态
-
-M1-M6 已完成：骨架、语音合成、语音识别、语音播客、人声分离，以及 Web 产品化重做（设计系统 + 组件库 + 全站页面 + 音频播放体验）。设计文档见 [docs/superpowers/specs/2026-09-12-toolbox-design.md](docs/superpowers/specs/2026-09-12-toolbox-design.md)。
-
-**机器翻译**：`toolbox translate` 命令 + Web「机器翻译」页 + 计费测算估算器；产物为 `translation` 类型文本文件（支持 `--out` 重定向），summary 含译文、检测到的源语言与 token 用量；需在控制台开通 `volc.speech.mt` 权限。
-
-**语音妙记**：`toolbox minutes` 命令 + Web「语音妙记」页；公网音视频 URL 提交异步任务，转写（带说话人）转出 txt 全文与 SRT 字幕，附加功能（总结/待办/问答/章节/翻译，至少一项）落 JSON 产物并解析进 summary 供页面直接渲染；结果链接 24h 有效、查询成功立即转存本地；凭证同语音三件套（新版 API Key 或 APP ID + Access Token）。
 
 ## 快速开始
 
@@ -88,10 +77,12 @@ make all
 
 # 启动 Web 控制台（默认端口取配置 server.port，可用 --port 覆盖）
 ./bin/toolbox serve --port 8080
-# 浏览器打开 http://127.0.0.1:8080 → 合成/识别/播客/分离/翻译页交互、播放、查看历史
+# 浏览器打开 http://127.0.0.1:8080 → 各工具页交互、播放、查看历史
 ```
 
 未配置凭证时执行 `tts` / `asr` / `podcast` / `translate` / `minutes`（语音凭证；仅播客必须 APP ID + Access Token）或 `separate`（MediaKit API Key，两套凭证独立）以退出码 4 结束，stderr 提示 `config set` 命令。
+
+> 各火山能力需在控制台开通对应服务：语音三件套开「豆包语音」、机器翻译开 `volc.speech.mt`、语音妙记开 `volc.lark.minutes`、人声分离开 AI MediaKit；开通后数分钟内生效。
 
 ## 构建与发布
 
@@ -102,7 +93,7 @@ make web     # 仅构建前端并同步到 embed 目录
 make dist    # 交叉编译五个平台（darwin/linux × amd64/arm64 + windows/amd64）打包到 dist/
 ```
 
-`make dist` 依赖无 CGO 的纯 Go sqlite 驱动，因此无需交叉编译工具链即可产出各平台可执行文件。darwin 产物在 macOS runner 上构建并做 ad-hoc 签名（Apple Silicon 拒绝执行无签名 arm64 二进制；未做 Apple 公证）。
+`make dist` 依赖无 CGO 的纯 Go sqlite 驱动，因此无需交叉编译工具链即可产出各平台可执行文件。darwin 产物已含 ad-hoc 签名（Go 交叉编译 darwin/arm64 时自动签，release workflow 另在 macOS runner 上显式 `codesign` 加固），但未做 Apple 公证。
 
 **macOS 安装说明**（从 Release 下载 zip 解压后）：
 
@@ -112,14 +103,19 @@ make dist    # 交叉编译五个平台（darwin/linux × amd64/arm64 + windows/
 xattr -d com.apple.quarantine ./toolbox
 
 # 也可在「系统设置 → 隐私与安全性」中对该文件点「仍要打开」。
-# 用 curl/wget 直接下载的文件不带隔离属性，无需上述步骤。
+# 用 curl/wget 直接下载的文件不带隔离属性，解压即可运行：
+curl -LO <release 里的 zip 地址> && unzip toolbox-*-darwin-arm64.zip && ./toolbox-*/toolbox --version
 ```
-
-> 旧版本（v0.1.x 早期产物）若在 linux runner 交叉编译且无签名，Apple Silicon 上即使移除隔离属性也无法执行（内核 SIGKILL），需先 ad-hoc 重签：`codesign --force --sign - ./toolbox`。
 
 ## 技术栈
 
 Go（gin / gorm / cobra / resty / viper / gorilla/websocket）· React 19 + TypeScript + Vite + Tailwind CSS v4 · SQLite · Lucide 图标 · Fira Sans / Fira Code（自托管，离线可用）
+
+## 文档
+
+- [设计文档](docs/superpowers/specs/2026-09-12-toolbox-design.md)：架构、接口要点、契约
+- [UI 设计规范](design-system/toolbox/MASTER.md)：色彩/字体/间距/组件规格（Web 界面实现依据）
+- [agent skill](skills/toolbox/SKILL.md)：CLI 完整参考（[references/cli.md](skills/toolbox/references/cli.md)），供 agent 与脚本调用
 
 ## License
 
