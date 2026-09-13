@@ -12,7 +12,12 @@
 
 ## 0. 设计方向（一句话）
 
-**把界面做成一台专业音频设备**：近黑阳极面板、机架刻度线、琥珀色信号色（VU 表头）、等宽数字读数、刻印感微标签。产品调性是「精密仪器」，不是「炫酷 AI 产品」。
+**把界面做成一台专业音频设备**：暖黑阳极金属面板、机架刻印微标签、琥珀色信号色（VU 表头）、等宽数字读数。产品调性是「精密仪器」，不是「炫酷 AI 产品」，更不是「模板化后台」。
+
+**材质三律（反「Gradio 味」的硬判据，2026-09 二次校准）**：
+1. **无纯平面**——一切容器表面必须有方向性：卡片用极缓的顶亮渐变（拉丝金属），输入用凹槽内嵌阴影（机加工凹陷）。
+2. **无冷灰**——中性色全部带琥珀暖倾向（canvas 偏 `#0D0B09` 族，非 `#0A0A0C` 蓝黑族）；亮色主题是暖纸/香槟，不是纯白。
+3. **有空气感**——画布铺 2~3% 噪点纹理（胶片颗粒），主操作按钮带暖光晕；光来自「设备指示灯」，不来自装饰彩虹。
 
 设计决策的判据：任何视觉选择都要能回答「这像不像一件录音棚里的设备」。不像的，删掉。
 
@@ -24,41 +29,53 @@
 
 | 角色 | 值 | 语义 / 用途 |
 |---|---|---|
-| `--color-bg` | `#0A0A0C` | 应用画布（近黑中性，**禁止纯黑 #000**） |
-| `--color-panel` | `#0F0F12` | 侧栏、面板底、表头 |
-| `--color-raise` | `#141418` | 卡片、内容容器 |
-| `--color-raise-2` | `#1B1B20` | 卡片内嵌槽、输入框、hover 底 |
-| `--color-line` | `rgba(255,255,255,.07)` | 发丝分隔线（骨架级别，几乎每处都用） |
-| `--color-line-strong` | `rgba(255,255,255,.13)` | 分组边界、输入框边框 |
-| `--color-fg` | `#EDEDEF` | 主文本 |
-| `--color-fg-2` | `#A6A6AE` | 次级文本、值 |
-| `--color-muted` | `#6C6C76` | 微标签、说明、占位 |
+| `--color-bg` | `#0D0B09` | 应用画布（暖炭黑，琥珀底色倾向，**禁止纯黑与蓝黑**） |
+| `--color-panel` | `#141210` | 侧栏、面板底、表头 |
+| `--color-raise` | `#1A1713` | 卡片、内容容器 |
+| `--color-raise-2` | `#242019` | 卡片内嵌槽、hover 底 |
+| `--color-inset` | `#0F0D0A` | 输入凹槽底（比 raise 更深，配内嵌阴影） |
+| `--color-line` | `rgba(255,214,165,.08)` | 发丝分隔线（暖白低透明） |
+| `--color-line-strong` | `rgba(255,214,165,.16)` | 分组边界、输入框边框 |
+| `--color-fg` | `#F0EADE` | 主文本（暖白） |
+| `--color-fg-2` | `#B3A995` | 次级文本、值 |
+| `--color-muted` | `#7E7565` | 微标签、说明、占位 |
 | `--color-accent` | `#FF8A3D` | **信号琥珀**：主操作、激活态、焦点环 |
-| `--color-accent-hi` | `#FFA566` | accent hover |
-| `--color-accent-ink` | `#1A0E04` | 落在 accent 底上的文字 |
-| `--color-meter` | `#45D483` | **信号绿**：成功、波形、电平（不做主操作色） |
+| `--color-accent-hi` | `#FFA566` | accent hover / 按钮渐变顶 |
+| `--color-accent-ink` | `#1D0F03` | 落在 accent 底上的文字 |
+| `--color-meter` | `#4CD487` | **信号绿**：成功、波形、电平（不做主操作色） |
 | `--color-warn` | `#F5B942` | 警示 |
-| `--color-danger` | `#FF6B6B` | 错误、破坏性操作 |
+| `--color-danger` | `#FF6B5E` | 错误、破坏性操作 |
 
 ### 1.2 亮色（完整适配，非降级）
 
 | 角色 | 值 |
 |---|---|
-| `--color-bg` | `#F6F6F7` |
-| `--color-panel` | `#FFFFFF` |
-| `--color-raise` | `#FFFFFF` |
-| `--color-raise-2` | `#F1F1F3` |
-| `--color-line` | `rgba(0,0,0,.10)` |
-| `--color-line-strong` | `rgba(0,0,0,.16)` |
-| `--color-fg` | `#14141A` |
-| `--color-fg-2` | `#4A4A55` |
-| `--color-muted` | `#6E6E7A` |
-| `--color-accent` | `#D9600F` |
+| `--color-bg` | `#EEE9DF` |
+| `--color-panel` | `#F5F1E8` |
+| `--color-raise` | `#FAF7F0` |
+| `--color-raise-2` | `#EAE4D6` |
+| `--color-inset` | `#E2DBC9` |
+| `--color-line` | `rgba(72,58,34,.14)` |
+| `--color-line-strong` | `rgba(72,58,34,.22)` |
+| `--color-fg` | `#241F15` |
+| `--color-fg-2` | `#5D5443` |
+| `--color-muted` | `#736A56` |
+| `--color-accent` | `#D95F0E` |
 | `--color-accent-hi` | `#B94F0A` |
 | `--color-accent-ink` | `#FFFFFF` |
-| `--color-meter` | `#15803D` |
+| `--color-meter` | `#17803E` |
 | `--color-warn` | `#B45309` |
-| `--color-danger` | `#DC2626` |
+| `--color-danger` | `#D43434` |
+
+亮色是「日光下的同一台设备」：暖纸画布 + 香槟面板，**禁止纯白 `#FFFFFF` 大面积做画布/面板**（纯白=通用后台即视感的根源）。
+
+### 1.3 材质规则（全主题通用，组件层实现）
+
+1. **卡片 = 拉丝金属面**：`.card-surface`——`linear-gradient(180deg, edge-light 混入 3%, raise)` 顶亮渐变 + `--shadow-1` 顶缘 1px 内高光。禁止再写裸 `bg-raise`。
+2. **输入 = 机加工凹槽**：底用 `--color-inset`（比容器深一档）+ `inset 0 1px 2px var(--inset-shadow)`；focus 时琥珀边框+外环，内嵌阴影保留。
+3. **主操作按钮 = 琥珀透光**：`.btn-primary`——`linear-gradient(180deg, accent-hi, accent)` + 顶部内高光 + `0 2px 14px -4px` 暖光晕；hover 整体提亮，**禁止位移**。
+4. **画布噪点**：`body::after` 全屏 feTurbulence 噪点，暗色 `opacity .028`、亮色 `.02`，`pointer-events:none`，z 最顶层——胶片颗粒统一材质，**禁止任何大于 4% 的纹理透明度**。
+5. **波形 idle 色**：`--wave-idle` 随主题（暗 `rgba(240,234,222,.16)` / 亮 `rgba(72,58,34,.20)`），WavePlayer 从令牌读取，禁止硬编码。
 
 **色彩纪律**：琥珀是唯一主操作色；绿只表示「信号/成功/电平」；红只表示「错误/破坏」。禁止第二个装饰性强调色。
 
@@ -102,11 +119,16 @@
 
 **圆角**：`--radius-sm 6px`（输入、按钮）· `md 10px`（卡片）· `lg 14px`（浮层）· `full`（徽标、圆点）
 
-**阴影**（暗色底靠「内发光 + 深投影」造层次，不是靠大黑影）：
+**阴影**（暗色底靠「顶缘暖光内高光 + 深投影」造层次，不是靠大黑影；阴影随主题切换，定义为变量）：
 ```css
---shadow-1: 0 1px 2px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.03);
---shadow-2: 0 8px 24px -8px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.03);
---shadow-3: 0 24px 48px -12px rgba(0,0,0,.7);
+/* 暗色 */
+--elev-1: 0 1px 2px rgba(20,10,0,.5), inset 0 1px 0 rgba(255,215,170,.06);
+--elev-2: 0 8px 24px -8px rgba(20,10,0,.65), inset 0 1px 0 rgba(255,215,170,.06);
+--elev-3: 0 24px 48px -12px rgba(15,8,0,.75);
+/* 亮色 */
+--elev-1: 0 1px 2px rgba(80,60,30,.10), inset 0 1px 0 rgba(255,255,255,.7);
+--elev-2: 0 8px 24px -10px rgba(80,60,30,.18), inset 0 1px 0 rgba(255,255,255,.7);
+--elev-3: 0 24px 48px -12px rgba(80,60,30,.25);
 ```
 
 **动效**：`--dur-1 120ms`（状态切换）· `--dur-2 200ms`（进浮层）· `--ease cubic-bezier(.2,.8,.2,1)`

@@ -9,7 +9,8 @@ const base =
   "disabled:opacity-45 disabled:cursor-not-allowed disabled:pointer-events-none";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-accent text-accent-ink hover:bg-accent-hi",
+  // 主操作 = 琥珀透光：渐变 + 顶缘高光 + 暖光晕（.btn-primary 定义于 theme.css）
+  primary: "btn-primary text-accent-ink",
   secondary:
     "border border-line-strong text-fg hover:bg-raise-2 hover:border-[color-mix(in_oklab,var(--accent)_45%,transparent)]",
   ghost: "text-fg-2 hover:bg-raise-2 hover:text-fg",

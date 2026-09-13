@@ -47,7 +47,7 @@ export function WavePlayer({ src, title, sub, durationSec, className = "" }: Wav
       const cs = getComputedStyle(document.documentElement);
       colorsRef.current = {
         accent: cs.getPropertyValue("--accent").trim() || "#ff8a3d",
-        idle: cs.getPropertyValue("--line-strong").trim() || "rgba(255,255,255,.18)",
+        idle: cs.getPropertyValue("--wave-idle").trim() || cs.getPropertyValue("--line-strong").trim() || "rgba(255,255,255,.18)",
       };
       if (peaksRef.current) draw();
     };

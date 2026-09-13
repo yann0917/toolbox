@@ -7,7 +7,8 @@ import type {
 } from "react";
 
 const control =
-  "w-full rounded-[var(--radius-sm)] bg-raise-2 border border-line-strong text-fg " +
+  "w-full rounded-[var(--radius-sm)] bg-inset border border-line-strong text-fg " +
+  "shadow-[inset_0_1px_2px_var(--inset-shadow)] " +
   "placeholder:text-muted transition-colors duration-150 " +
   "hover:border-[color-mix(in_oklab,var(--muted)_45%,transparent)] " +
   "focus:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/30 " +
