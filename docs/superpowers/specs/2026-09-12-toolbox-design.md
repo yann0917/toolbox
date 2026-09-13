@@ -17,7 +17,7 @@
 |---|---|---|---|
 | 语音合成 TTS | 豆包语音（openspeech） | HTTP 非流式 V1 / WebSocket 双向流式 V3 | APP ID + Access Token（或新版 API Key） |
 | 语音识别 ASR | 豆包语音（openspeech） | 本地文件走 sauc nostream WS 直发；公网 URL 走录音文件识别三版本（标准异步 / 闲时 / 极速同步） | 同上 |
-| 语音播客 | 豆包语音播客大模型 | WebSocket V3，流式事件返回 | 同上 |
+| 语音播客 | 豆包语音播客大模型 | WebSocket V3，流式事件返回 | **APP ID + Access Token**（播客协议不支持新版 API Key，缺任一在凭证校验即拦下） |
 | 人声背景音分离 | AI MediaKit | REST 异步：提交任务 → 轮询 | 独立 MediaKit API Key（Bearer） |
 
 已确认的关键决策：
@@ -31,7 +31,7 @@
 
 ## 2. 火山引擎接口要点（实现依据）
 
-统一域名 `openspeech.bytedance.com`；语音三件套鉴权 headers：`X-Api-App-Key`(APP ID)、`X-Api-Access-Key`(Access Token)、`X-Api-Resource-Id`、`X-Api-Request-Id`(UUID)。新版控制台可改用 `X-Api-Key`。
+统一域名 `openspeech.bytedance.com`；语音三件套鉴权 headers：`X-Api-App-Key`(APP ID)、`X-Api-Access-Key`(Access Token)、`X-Api-Resource-Id`、`X-Api-Request-Id`(UUID)。新版控制台可改用 `X-Api-Key`——**但播客除外**：播客 WS 只认 APP ID + Access Token，工具层以 `SpeechCred.ValidatePodcast` 单独校验。
 
 ### 2.1 TTS 语音合成
 - HTTP 非流式：`POST /api/v1/tts`，返回完整音频。适合短文本与 CLI。

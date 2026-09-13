@@ -105,7 +105,7 @@ func (e *podFatalError) Unwrap() error { return e.err }
 // 连接中断（未收到 152）自动以同一 X-Api-Request-Id 携带 retry_info 续传，
 // 首连 + 最多 2 次续传共 3 次，全部失败返回最后一次错误；服务端错误帧与 ctx 取消立即终止不重试。
 func (c *PodcastClient) Generate(ctx context.Context, req PodcastRequest, onRound func(PodcastRound)) (PodcastResult, error) {
-	if err := c.cred.Validate(); err != nil {
+	if err := c.cred.ValidatePodcast(); err != nil {
 		return PodcastResult{}, err
 	}
 	if err := validatePodSpeakers(req.Speakers); err != nil {

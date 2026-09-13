@@ -143,9 +143,11 @@ export default function SettingsPage() {
           />
           <CardBody className="space-y-4">
             <p className="text-xs text-muted">
-              用于语音合成、语音识别与播客生成。配置项：<code className="font-mono text-fg-2">volc.speech.app_id</code>、
-              <code className="font-mono text-fg-2">volc.speech.access_token</code>（或新版
-              <code className="font-mono text-fg-2">volc.speech.api_key</code>）。
+              播客生成<strong className="text-fg">必须 APP ID + Access Token</strong>
+              （播客协议只认这对凭证，不支持新版 API Key）；TTS / 语音识别两者皆可——
+              <code className="font-mono text-fg-2">volc.speech.app_id</code> +
+              <code className="font-mono text-fg-2">volc.speech.access_token</code>，或新版
+              <code className="font-mono text-fg-2">volc.speech.api_key</code> 单键。
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="APP ID" hint="留空表示不修改">
@@ -157,7 +159,7 @@ export default function SettingsPage() {
                 )}
               </Field>
             </div>
-            <Field label="新版 API Key（与上面二选一）" hint="新版控制台可只配此项">
+            <Field label="新版 API Key（仅 TTS / 语音识别可用）" hint="播客不支持此键，仍需上方 APP ID + Access Token">
               {({ id, ...rest }) => <SecretInput id={id} name="api_key" placeholder="留空表示不修改" {...rest} />}
             </Field>
           </CardBody>

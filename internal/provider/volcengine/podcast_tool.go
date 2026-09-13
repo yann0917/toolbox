@@ -103,7 +103,7 @@ func (t *PodcastTool) Run(ctx context.Context, in provider.TaskInput, report pro
 		return provider.TaskOutput{}, fmt.Errorf("暂不支持该音频格式（支持 mp3/ogg_opus/pcm/aac）")
 	}
 
-	if err := t.cred.Validate(); err != nil {
+	if err := t.cred.ValidatePodcast(); err != nil {
 		return provider.TaskOutput{}, err
 	}
 

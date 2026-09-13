@@ -162,7 +162,7 @@ toolbox config list                    # 查看配置（密钥打码显示）
 |---|---|
 | `volc.speech.app_id` | 火山引擎语音 APP ID（TTS/ASR/播客共用） |
 | `volc.speech.access_token` | 语音 Access Token |
-| `volc.speech.api_key` | 新版控制台 API Key（与上面二选一） |
+| `volc.speech.api_key` | 新版控制台 API Key（仅 TTS/ASR 可用；播客必须 APP ID + Access Token） |
 | `volc.mediakit.api_key` | AI MediaKit API Key（人声分离） |
 | `server.port` | Web 端口，默认 8080 |
 | `data_dir` | 产物数据目录，默认 `~/.toolbox/data` |

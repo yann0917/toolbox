@@ -373,6 +373,26 @@ func TestPodcastToolInputValidation(t *testing.T) {
 	})
 }
 
+// TestPodcastToolAPIKeyOnlyRejected 播客协议只认 APP ID + Access Token：
+// 仅配新版 API Key 时必须在凭证校验拦下（不得等 WS 握手失败），且不建立连接。
+func TestPodcastToolAPIKeyOnlyRejected(t *testing.T) {
+	m := podToolSuccessServer(t, nil)
+	cred := SpeechCred{APIKey: "ak-only"}
+	tool := &PodcastTool{client: NewPodcastClientWithURL(cred, m.wsURL()), cred: cred, outDir: t.TempDir()}
+	_, err := tool.Run(context.Background(), provider.TaskInput{
+		Params: map[string]any{
+			"input_text": "你好",
+			"speakers":   "zh_female_cancan_mars_bigtts,zh_male_dayixiansheng_v2_saturn_bigtts",
+		},
+	}, nopReport)
+	if err == nil || !strings.Contains(err.Error(), "播客需要 APP ID 与 Access Token") {
+		t.Fatalf("err = %v, want 提示播客需要 APP ID 与 Access Token", err)
+	}
+	if m.count() != 0 {
+		t.Errorf("凭证不足不应建立 WS 连接, count = %d", m.count())
+	}
+}
+
 // TestPodcastToolAudioFallback 分片为空且 363 携带 audio_url：兜底下载转存，Summary 标记 fallback。
 func TestPodcastToolAudioFallback(t *testing.T) {
 	const fallbackAudio = "FALLBACK-MP3-CONTENT"
