@@ -24,7 +24,10 @@ web:
 
 all: web build
 
-# 交叉编译发布包（纯 Go sqlite 驱动，无 CGO 依赖）
+# 交叉编译发布包（纯 Go sqlite 驱动，无 CGO 依赖）。
+# darwin 产物构建后做 ad-hoc 签名：Apple Silicon 内核拒绝执行无签名 arm64 二进制
+# （Go 仅在 macOS host 原生构建时自动 ad-hoc；linux CI 交叉编译不会）。
+# 未公证的下载产物仍会被 Gatekeeper 拦一次，README「macOS 说明」有解锁指引。
 dist: web
 	@rm -rf dist && mkdir -p dist
 	@for p in $(PLATFORMS); do \
@@ -34,6 +37,9 @@ dist: web
 		echo "building $$out"; \
 		mkdir -p "$$out"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o "$$out/toolbox$$ext" ./cmd/toolbox || exit 1; \
+		if [ "$$os" = "darwin" ] && command -v codesign >/dev/null 2>&1; then \
+			codesign --force --sign - "$$out/toolbox$$ext" || exit 1; \
+		fi; \
 		cp README.md "$$out/" 2>/dev/null || true; \
 		(cd dist && zip -qr "toolbox-$(VERSION)-$$os-$$arch.zip" "toolbox-$(VERSION)-$$os-$$arch") || exit 1; \
 		rm -rf "$$out"; \

@@ -1,6 +1,8 @@
 name: Release
 
 # 手动触发发布：版本号可填可不填，留空则在最新 tag 基础上自动把 patch +1。
+# darwin 产物必须在 macOS runner 构建并 ad-hoc 签名：Apple Silicon 内核拒绝执行
+# 无签名 arm64 二进制，而 Go 只在 macOS host 原生构建时自动 ad-hoc（linux 交叉编译不会）。
 on:
   workflow_dispatch:
     inputs:
@@ -22,8 +24,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: 构建并发布
+  resolve:
+    name: 解析版本与测试
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -33,13 +35,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: 安装 Node（前端编译要求 24+）
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
 
       - name: 安装 Go（版本取自 go.mod）
         uses: actions/setup-go@v5
@@ -92,8 +87,41 @@ jobs:
       - name: 运行测试
         run: go test ./... -count=1
 
-      - name: 构建发布包（前端 + 五平台交叉编译）
-        run: make dist VERSION=${{ steps.ver.outputs.version }}
+  build:
+    name: 构建发布包（${{ matrix.name }}）
+    needs: resolve
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux 与 windows
+            platforms: "linux/amd64 linux/arm64 windows/amd64"
+          - os: macos-latest
+            name: darwin（含 ad-hoc 签名）
+            platforms: "darwin/arm64 darwin/amd64"
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Node（前端编译要求 24+）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装 Go（版本取自 go.mod）
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 构建发布包（前端 + 交叉编译 + darwin ad-hoc 签名）
+        run: make dist VERSION=${{ needs.resolve.outputs.version }} PLATFORMS="${{ matrix.platforms }}"
 
       - name: 校验产物
         run: |
@@ -106,21 +134,55 @@ jobs:
           fi
           echo "共生成 $count 个发布包"
 
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: 发布 Release
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇合各平台产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 平铺产物到 dist/
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find artifacts -name '*.zip' -exec mv {} dist/ \;
+          ls -lh dist/
+          count="$(ls -1 dist/*.zip | wc -l | tr -d ' ')"
+          if [ "$count" -ne 5 ]; then
+            echo "::error::发布包数量 $count，应为 5（linux/arm64、linux/amd64、windows/amd64、darwin/arm64、darwin/amd64）"
+            exit 1
+          fi
+
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: ${{ steps.ver.outputs.tag }}
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          name: ${{ needs.resolve.outputs.tag }}
           files: dist/*.zip
           draft: ${{ inputs.draft }}
           generate_release_notes: true
+          body: |
+            > **macOS 安装提示**：二进制为 ad-hoc 签名（未公证）。若提示「Apple could not verify …」，
+            > 执行 `xattr -d com.apple.quarantine ./toolbox` 后重试；如仍被拦，在
+            > 「系统设置 → 隐私与安全性」中点「仍要打开」。
           fail_on_unmatched_files: true
 
       - name: 汇总
         run: |
           echo "### 发布完成 :rocket:" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 版本：\`${{ steps.ver.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 版本：\`${{ needs.resolve.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- 草稿：\`${{ inputs.draft }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| 发布包 | 大小 |" >> "$GITHUB_STEP_SUMMARY"

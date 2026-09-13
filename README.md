@@ -102,7 +102,20 @@ make web     # 仅构建前端并同步到 embed 目录
 make dist    # 交叉编译五个平台（darwin/linux × amd64/arm64 + windows/amd64）打包到 dist/
 ```
 
-`make dist` 依赖无 CGO 的纯 Go sqlite 驱动，因此无需交叉编译工具链即可产出各平台可执行文件。
+`make dist` 依赖无 CGO 的纯 Go sqlite 驱动，因此无需交叉编译工具链即可产出各平台可执行文件。darwin 产物在 macOS runner 上构建并做 ad-hoc 签名（Apple Silicon 拒绝执行无签名 arm64 二进制；未做 Apple 公证）。
+
+**macOS 安装说明**（从 Release 下载 zip 解压后）：
+
+```bash
+# 浏览器下载的文件带 quarantine 隔离属性，未公证的二进制会被 Gatekeeper 拦
+# （提示「Apple could not verify …」）。移除隔离属性即可运行：
+xattr -d com.apple.quarantine ./toolbox
+
+# 也可在「系统设置 → 隐私与安全性」中对该文件点「仍要打开」。
+# 用 curl/wget 直接下载的文件不带隔离属性，无需上述步骤。
+```
+
+> 旧版本（v0.1.x 早期产物）若在 linux runner 交叉编译且无签名，Apple Silicon 上即使移除隔离属性也无法执行（内核 SIGKILL），需先 ad-hoc 重签：`codesign --force --sign - ./toolbox`。
 
 ## 技术栈
 
