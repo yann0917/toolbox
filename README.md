@@ -5,7 +5,7 @@
 | 能力 | 说明 | 接口形态 |
 |---|---|---|
 | 语音合成 TTS | 文本转语音，多音色、语速音量可调 | HTTP + WebSocket |
-| 语音识别 ASR | 本地文件/URL 转文字，分句时间戳、SRT 字幕 | 本地文件直发（官方协议）/ URL 异步 |
+| 语音识别 ASR | 本地文件/URL 转文字，分句时间戳、SRT 字幕 | 三版本：本地直发（官方协议）/ URL 异步（标准） / 闲时 / 极速同步 |
 | 语音播客 | 主题/长文本/网页/对话稿一键生成双人播客 | WebSocket 事件流，支持断点续传 |
 | 人声背景音分离 | 公网音视频 URL 多轨分离：Audio/Music 双轨（人声+背景/伴奏），Drama/Narrate 三轨（人声+音乐+音效） | AI MediaKit REST（产物 24h 临时链接，立即转存本地） |
 
@@ -46,6 +46,10 @@ make all
 
 # 音频转文字（--srt 默认产出 SRT 字幕，--srt=false 关闭；其他格式见 skill 参考）
 ./bin/toolbox asr /tmp/recording.mp3 --out /tmp/transcript.txt --json
+
+# 录音文件识别版本 --version standard|idle|flash（闲时/极速仅收公网 URL）
+./bin/toolbox asr --url "https://example.com/talk.mp3" --version flash --json   # 极速版，同步秒级返回
+./bin/toolbox asr --url "https://example.com/talk.mp3" --version idle  --json   # 闲时版，低价、24h 内完成
 
 # 主题一键生成双人播客（--speakers 必填：两个音色 ID 逗号分隔，可用 toolbox voices list 查询）
 ./bin/toolbox podcast "用五分钟聊聊本地大模型" \

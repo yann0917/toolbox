@@ -16,7 +16,7 @@
 | 工具 | 平台/服务 | 接口形态 | 凭证 |
 |---|---|---|---|
 | 语音合成 TTS | 豆包语音（openspeech） | HTTP 非流式 V1 / WebSocket 双向流式 V3 | APP ID + Access Token（或新版 API Key） |
-| 语音识别 ASR | 豆包语音（openspeech） | 本地文件走 sauc nostream WS 直发；公网 URL 走 submit/query 异步 HTTP | 同上 |
+| 语音识别 ASR | 豆包语音（openspeech） | 本地文件走 sauc nostream WS 直发；公网 URL 走录音文件识别三版本（标准异步 / 闲时 / 极速同步） | 同上 |
 | 语音播客 | 豆包语音播客大模型 | WebSocket V3，流式事件返回 | 同上 |
 | 人声背景音分离 | AI MediaKit | REST 异步：提交任务 → 轮询 | 独立 MediaKit API Key（Bearer） |
 
@@ -40,6 +40,9 @@
 
 ### 2.2 ASR 语音识别
 - 录音文件识别（异步 HTTP）：`POST /api/v3/auc/bigmodel/submit`（body 传音频公网 URL）→ `POST /api/v3/auc/bigmodel/query` 轮询。Resource-Id `volc.seedasr.auc`。上限 4 小时。
+- 录音文件识别闲时版（6561/2608618 提交、6561/2608619 查询）：`POST /api/v3/auc/bigmodel/idle/submit` → `/api/v3/auc/bigmodel/idle/query`，Resource-Id `volc.bigasr.auc_idle`。仅收 `audio.url`（`audio.format` 必填、按 URL 扩展名推断），闲时算力执行、任务通常 24h 内完成；查询请求体为空 JSON、任务 ID 经 `X-Api-Request-Id` 头回传，`result` 非空即完成，X-Api-Status-Code 4 开头为终态错误、2/5 开头视为中间态继续轮询（工具层 24h 兜底，10s 起步退避至 2min）。
+- 录音文件识别极速版（6561/2608628）：`POST /api/v3/auc/bigmodel/recognize/flash`，Resource-Id `volc.bigasr.auc_turbo`。同步返回完整识别结果（≤100MB / 2 小时），无需轮询。
+- 三版本统一 `version` 参数：`standard`（默认）/ `idle` / `flash`；本地文件仅标准版可用（闲时/极速协议只收 URL）。闲时/极速版 language 位于 `audio` 对象（与 sauc WS 的 audio.language 一致），热词经 `request.corpus.context`（JSON 字符串 `{"hotwords":[{"word":"..."}]}`）直传。
 - 识别（WebSocket，sauc 协议）：**本地文件识别走官方 sauc 协议（vendor 自 sauc_go demo）`bigmodel_nostream` 端点直发音频、全速分片**，绕开「火山访问不到本地文件」的问题，无需公网 URL。
 - 产物：全文文本 + 分句（带时间戳），支持导出 TXT / SRT。
 - 增值参数：热词（hotwords 直传）、上下文 context。
@@ -183,7 +186,7 @@ WebSocket `GET /api/ws`，单一通道，JSON 消息：
 ```
 toolbox serve [--port 8080]
 toolbox tts <text|--file> [--voice <id>] [--format mp3|wav] [--speed-ratio 1.0] [--volume-ratio 1.0] [--out path]
-toolbox asr <file|--url> [--out text.txt] [--srt] [--hotwords "词1,词2"]
+toolbox asr <file|--url> [--version standard|idle|flash] [--out text.txt] [--srt] [--hotwords "词1,词2"]
 toolbox podcast <text|--file|--url> [--mode auto|script] [--script dialog.json]
                 [--speakers id1,id2] [--format mp3] [--out path]
 toolbox separate <url> [--scene audio|drama] [--out dir]
@@ -205,7 +208,7 @@ toolbox voices list                                      # 音色列表查询与
 
 1. **工作台**：工具入口卡片（含累计用量统计）+ 最近任务动态。
 2. **语音合成**：文本编辑区（字数、长文本提示）+ 参数面板（音色分组选择器、试听样本；语速/音量/格式）。生成 → 进度态 → 内嵌播放器 + 下载。
-3. **语音识别**：拖拽上传或粘贴 URL；结果按句展示（时间戳可点击跳播），导出 TXT/SRT。
+3. **语音识别**：拖拽上传或粘贴 URL，可选识别版本（标准/闲时/极速，后两者仅 URL）；结果按句展示（时间戳可点击跳播），导出 TXT/SRT。
 4. **播客工坊**：三步向导——内容输入（主题/长文本/网页/对话稿 四模式）→ 双人音色搭配（预设组合）→ 生成页「对话流」逐轮滚动 + 进度环 + 已生成时长；成品播放器。
 5. **人声分离**：输入音频/视频公网 URL（表单明确提示 MediaKit 需公网可访问地址，本地文件先上传对象存储）→ 四场景选择（通用/音乐双轨，短剧/口播三轨）+ 输出格式 → 多轨结果（每轨一行播放器、分别下载）；人声轨一键「送 ASR」（`artifact_input` 跨工具联动）。
 6. **历史**：任务表格（类型/状态/耗时筛选），行内重播、下载、删除、同参重跑；产物均有下载入口。

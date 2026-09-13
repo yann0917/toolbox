@@ -3,6 +3,7 @@ package volcengine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -153,6 +154,179 @@ func TestASRToolNoInput(t *testing.T) {
 	_, err := tool.Run(context.Background(), provider.TaskInput{Params: map[string]any{}}, nopReport)
 	if err == nil || !strings.Contains(err.Error(), "缺少输入") {
 		t.Fatalf("err = %v, 期望包含「缺少输入」", err)
+	}
+}
+
+func TestASRToolIdleMode(t *testing.T) {
+	oldInterval, oldMax, oldTimeout := asrIdlePollInterval, asrIdlePollMax, asrIdlePollTimeout
+	asrIdlePollInterval, asrIdlePollMax, asrIdlePollTimeout = 5*time.Millisecond, 10*time.Millisecond, 3*time.Second
+	defer func() { asrIdlePollInterval, asrIdlePollMax, asrIdlePollTimeout = oldInterval, oldMax, oldTimeout }()
+
+	var mu sync.Mutex
+	queries := 0
+	var submitHeaders map[string]string
+	var submitBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("X-Api-Status-Code", asrAUCCodeOK)
+		w.WriteHeader(http.StatusOK)
+		switch r.URL.Path {
+		case asrIdleSubmitPath:
+			submitHeaders = map[string]string{
+				"X-Api-Resource-Id": r.Header.Get("X-Api-Resource-Id"),
+				"X-Api-Sequence":    r.Header.Get("X-Api-Sequence"),
+			}
+			var m map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&m)
+			submitBody = m
+			_ = json.NewEncoder(w).Encode(map[string]any{"task_id": "idle-task-1"})
+		case asrIdleQueryPath:
+			// 查询必须以 submit 返回的任务 ID 回传 X-Api-Request-Id。
+			if r.Header.Get("X-Api-Request-Id") != "idle-task-1" {
+				w.Header().Set("X-Api-Status-Code", "45000201")
+				return
+			}
+			queries++
+			if queries == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"result": map[string]any{
+					"text": "你好世界",
+					"utterances": []any{
+						map[string]any{"text": "你好", "start_time": 0, "end_time": 1000},
+					},
+				},
+				"audio_info": map[string]any{"duration": 1000},
+			})
+		default:
+			t.Errorf("闲时模式不应请求 %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	cred := SpeechCred{APIKey: "key-1"}
+	tool := &ASRTool{
+		ws:     NewASRClientWithURL(cred, "ws://127.0.0.1:1"),
+		auc:    NewASRAUCClientWithBaseURL(cred, srv.URL),
+		cred:   cred,
+		outDir: t.TempDir(),
+	}
+	out, err := tool.Run(context.Background(), provider.TaskInput{
+		Params: map[string]any{
+			"url":      "https://example.com/podcast.MP3?sig=x",
+			"version":  "idle",
+			"language": "zh-CN",
+			"hotwords": "火山引擎, 语音合成",
+		},
+	}, nopReport)
+	if err != nil {
+		t.Fatalf("Run() err = %v", err)
+	}
+	if queries < 2 {
+		t.Errorf("query 次数 = %d, 期望至少 2 次（中间态 → Completed）", queries)
+	}
+	if submitHeaders["X-Api-Resource-Id"] != asrIdleResourceID || submitHeaders["X-Api-Sequence"] != "-1" {
+		t.Errorf("submit headers = %v", submitHeaders)
+	}
+	audio, _ := submitBody["audio"].(map[string]any)
+	if audio == nil || audio["url"] != "https://example.com/podcast.MP3?sig=x" ||
+		audio["format"] != "mp3" || audio["language"] != "zh-CN" {
+		t.Errorf("submit audio = %v（大写扩展名应归一为小写 format）", submitBody["audio"])
+	}
+	req, _ := submitBody["request"].(map[string]any)
+	if req == nil || req["model_name"] != "bigmodel" || req["show_utterances"] != true {
+		t.Errorf("submit request = %v", submitBody["request"])
+	}
+	corpus, _ := req["corpus"].(map[string]any)
+	if corpus == nil || !strings.Contains(fmt.Sprint(corpus["context"]), "火山引擎") {
+		t.Errorf("热词应打包进 corpus.context: %v", req)
+	}
+	if out.Summary["version"] != "idle" || out.Summary["source"] != "url" || out.Summary["duration_ms"] != int64(1000) {
+		t.Errorf("summary = %v", out.Summary)
+	}
+	if len(out.Artifacts) != 2 || out.Artifacts[0].Kind != "transcript" || out.Artifacts[1].Kind != "subtitle" {
+		t.Fatalf("artifacts = %+v", out.Artifacts)
+	}
+}
+
+func TestASRToolFlashMode(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != asrFlashPath {
+			t.Errorf("极速模式不应请求 %s", r.URL.Path)
+		}
+		calls++
+		w.Header().Set("X-Api-Status-Code", asrAUCCodeOK)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"task_id": "flash-1",
+			"result": map[string]any{
+				"text": "极速结果",
+				"utterances": []any{
+					map[string]any{"text": "极速", "start_time": 0, "end_time": 500},
+				},
+			},
+			"audio_info": map[string]any{"duration": 1500},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	cred := SpeechCred{APIKey: "key-1"}
+	tool := &ASRTool{
+		ws:     NewASRClientWithURL(cred, "ws://127.0.0.1:1"),
+		auc:    NewASRAUCClientWithBaseURL(cred, srv.URL),
+		cred:   cred,
+		outDir: t.TempDir(),
+	}
+	out, err := tool.Run(context.Background(), provider.TaskInput{
+		Params: map[string]any{
+			"url":     "https://example.com/note.m4a",
+			"version": "flash",
+		},
+	}, nopReport)
+	if err != nil {
+		t.Fatalf("Run() err = %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("极速版为同步接口, 请求次数 = %d, 期望 1", calls)
+	}
+	if out.Summary["version"] != "flash" || out.Summary["duration_ms"] != int64(1500) {
+		t.Errorf("summary = %v", out.Summary)
+	}
+	if len(out.Artifacts) != 2 || out.Artifacts[0].Kind != "transcript" {
+		t.Fatalf("artifacts = %+v", out.Artifacts)
+	}
+}
+
+func TestASRToolIdleFlashRejectFile(t *testing.T) {
+	tool := newASRToolWithMockWS(t, []byte("audio"), "mp3")
+	audioFile := writeTestAudio(t, t.TempDir(), "sample.mp3", []byte("audio"))
+	for _, version := range []string{"idle", "flash"} {
+		_, err := tool.Run(context.Background(), provider.TaskInput{
+			Files:  map[string]string{"audio": audioFile},
+			Params: map[string]any{"version": version},
+		}, nopReport)
+		if err == nil || !strings.Contains(err.Error(), "仅支持") {
+			t.Fatalf("version=%s err = %v, 期望包含「仅支持」（参数错误退出码）", version, err)
+		}
+	}
+}
+
+func TestASRToolIdleFlashURLFormatRequired(t *testing.T) {
+	tool := newASRToolWithMockWS(t, []byte("audio"), "mp3")
+	for _, tc := range []struct{ name, url string }{
+		{"无扩展名", "https://example.com/audio"},
+		{"不支持的扩展名", "https://example.com/audio.flac"},
+	} {
+		_, err := tool.Run(context.Background(), provider.TaskInput{
+			Params: map[string]any{"url": tc.url, "version": "idle"},
+		}, nopReport)
+		if err == nil || !strings.Contains(err.Error(), "仅支持") {
+			t.Fatalf("%s: err = %v, 期望包含「仅支持」", tc.name, err)
+		}
 	}
 }
 

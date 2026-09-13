@@ -2,7 +2,9 @@ package volcengine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +21,31 @@ var (
 	asrPollMax      = 30 * time.Second
 	asrPollTimeout  = 10 * time.Minute
 )
+
+// 闲时版轮询节奏与极速版同步预算（同样 var 供测试注入）：闲时任务官方口径 24h 内完成，
+// 退避上限放宽到 2 分钟避免全天高频轮询；极速版同步接口长音频可能超过 resty 单请求 60s。
+var (
+	asrIdlePollInterval = 10 * time.Second
+	asrIdlePollMax      = 2 * time.Minute
+	asrIdlePollTimeout  = 24 * time.Hour
+	asrFlashTimeout     = 15 * time.Minute
+)
+
+// 录音文件识别版本（大模型三版本：6561/1354868 标准版、6561/2608618 闲时版、6561/2608628 极速版）。
+const (
+	asrVersionStandard = "standard" // 本地文件走 WS、URL 走异步 submit/query
+	asrVersionIdle     = "idle"     // 仅 URL，闲时算力执行，任务通常 24h 内完成
+	asrVersionFlash    = "flash"    // 仅 URL，同步返回结果（≤100MB、2 小时内音频）
+)
+
+// asrNormalizeVersion 归一版本参数：空与未知值一律回退标准版（向后兼容旧任务参数）。
+func asrNormalizeVersion(v string) string {
+	switch v {
+	case asrVersionIdle, asrVersionFlash:
+		return v
+	}
+	return asrVersionStandard
+}
 
 // ASRTool 语音识别工具：本地文件走 WS 同步通道（Files["audio"]），
 // 公网 URL 走异步 submit/query 通道（Params["url"]），产物为转写文本与 SRT 字幕。
@@ -50,6 +77,12 @@ func (t *ASRTool) Meta() provider.ToolMeta {
 
 func (t *ASRTool) ParamSpecs() []provider.ParamSpec {
 	return []provider.ParamSpec{
+		{Key: "version", Label: "识别版本", Type: provider.ParamEnum, Default: asrVersionStandard, Group: "输入",
+			Options: []provider.ParamOption{
+				{Value: asrVersionStandard, Label: "标准版（文件/URL）"},
+				{Value: asrVersionIdle, Label: "闲时版（URL，24h 内完成）"},
+				{Value: asrVersionFlash, Label: "极速版（URL，秒级返回）"},
+			}},
 		{Key: "url", Label: "音频 URL", Type: provider.ParamString,
 			Placeholder: "公网音频 URL，与上传文件二选一", Group: "输入"},
 		{Key: "hotwords", Label: "热词", Type: provider.ParamString,
@@ -62,11 +95,17 @@ func (t *ASRTool) ParamSpecs() []provider.ParamSpec {
 }
 
 func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provider.ProgressReporter) (provider.TaskOutput, error) {
-	// 参数校验先行：缺少输入、格式不受支持属参数错误（退出码 2），
+	// 参数校验先行：缺少输入、版本与输入方式冲突、格式不受支持属参数错误（退出码 2），
 	// 不应被凭证校验（退出码 4）掩盖。
+	version := asrNormalizeVersion(paramString(in.Params, "version"))
 	audioPath := in.Files["audio"]
-	if audioPath == "" && paramString(in.Params, "url") == "" {
+	audioURL := paramString(in.Params, "url")
+	if audioPath == "" && audioURL == "" {
 		return provider.TaskOutput{}, fmt.Errorf("缺少输入：请上传音频文件或提供音频 URL")
+	}
+	// 闲时版/极速版协议只收 audio.url（6561/2608618、6561/2608628），本地文件仅标准版可用。
+	if version != asrVersionStandard && audioPath != "" {
+		return provider.TaskOutput{}, fmt.Errorf("闲时版/极速版仅支持音频 URL 输入，本地文件请使用标准版")
 	}
 	var format string
 	if audioPath != "" {
@@ -83,7 +122,7 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 		resp   ASRNostreamResp
 		source string
 	)
-	switch audioPath := in.Files["audio"]; {
+	switch {
 	case audioPath != "": // 本地文件模式：WS 同步识别
 		source = "file"
 		audio, err := os.ReadFile(audioPath)
@@ -100,41 +139,93 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 		if err != nil {
 			return provider.TaskOutput{}, err
 		}
-	case paramString(in.Params, "url") != "": // URL 模式：异步 submit + 轮询
+	case version == asrVersionIdle: // 闲时版：submit + 长周期轮询（任务通常 24h 内完成）
+		source = "url"
+		req, err := idleFlashRequest(audioURL,
+			paramString(in.Params, "language"), paramString(in.Params, "hotwords"))
+		if err != nil {
+			return provider.TaskOutput{}, err
+		}
+		report(10, "提交闲时识别任务", nil)
+		taskID, err := t.auc.SubmitIdle(ctx, req)
+		if err != nil {
+			return provider.TaskOutput{}, err
+		}
+		report(30, "闲时任务已提交，通常 24 小时内完成", map[string]any{"task_id": taskID})
+		resp, err = t.pollAUC(ctx, taskID, aucPoller{
+			interval: asrIdlePollInterval, max: asrIdlePollMax, timeout: asrIdlePollTimeout,
+			query: t.auc.QueryIdle,
+			onPoll: func(n int, status string) {
+				report(30, "等待闲时识别结果", map[string]any{"task_id": taskID, "poll": n, "status": status})
+			},
+			timeoutMsg: "等待火山闲时识别结果超时（24 小时），任务可能仍在处理，请稍后重试或联系技术支持",
+		})
+		if err != nil {
+			return provider.TaskOutput{}, err
+		}
+	case version == asrVersionFlash: // 极速版：同步返回，无需轮询
+		source = "url"
+		req, err := idleFlashRequest(audioURL,
+			paramString(in.Params, "language"), paramString(in.Params, "hotwords"))
+		if err != nil {
+			return provider.TaskOutput{}, err
+		}
+		report(20, "极速识别中", nil)
+		fctx, cancel := context.WithTimeout(ctx, asrFlashTimeout)
+		resp, err = t.auc.RecognizeFlash(fctx, req)
+		cancel()
+		if err != nil {
+			return provider.TaskOutput{}, err
+		}
+	default: // 标准版 URL 模式：异步 submit + 轮询
 		source = "url"
 		report(10, "提交异步识别任务", nil)
-		taskID, err := t.auc.Submit(ctx, paramString(in.Params, "url"))
+		taskID, err := t.auc.Submit(ctx, audioURL)
 		if err != nil {
 			return provider.TaskOutput{}, err
 		}
 		report(30, "等待识别结果", map[string]any{"task_id": taskID})
-		resp, err = t.pollAUC(ctx, taskID)
+		resp, err = t.pollAUC(ctx, taskID, aucPoller{
+			interval: asrPollInterval, max: asrPollMax, timeout: asrPollTimeout,
+			query:      t.auc.Query,
+			timeoutMsg: "等待火山 ASR 识别结果超时，请稍后重试",
+		})
 		if err != nil {
 			return provider.TaskOutput{}, err
 		}
-	default:
-		return provider.TaskOutput{}, fmt.Errorf("缺少输入：请上传音频文件或提供音频 URL")
 	}
 	report(90, "保存识别结果", nil)
-	return t.saveArtifacts(in, resp, source)
+	return t.saveArtifacts(in, resp, source, version)
 }
 
-// pollAUC 轮询异步识别任务：起步 asrPollInterval 指数退避至 asrPollMax，
-// 总时长 asrPollTimeout 兜底（空 status 等中间态靠它终止）；ctx 取消优先返回。
-// 终态：Completed → 结果；Failed → 报错。
-func (t *ASRTool) pollAUC(ctx context.Context, taskID string) (ASRNostreamResp, error) {
-	deadline := time.Now().Add(asrPollTimeout)
-	interval := asrPollInterval
-	for {
+// aucPoller 轮询配置：query 为具体版本的查询函数，onPoll 每次查询后回调（可空，用于进度上报）。
+type aucPoller struct {
+	interval   time.Duration // 起步间隔（指数退避）
+	max        time.Duration // 退避上限
+	timeout    time.Duration // 总超时兜底（空 status 等中间态靠它终止）
+	query      func(context.Context, string) (ASRNostreamResp, string, error)
+	onPoll     func(n int, status string)
+	timeoutMsg string
+}
+
+// pollAUC 轮询异步识别任务：起步 interval 指数退避至 max，总时长 timeout 兜底；
+// ctx 取消优先返回。终态：Completed → 结果；Failed → 报错。
+func (t *ASRTool) pollAUC(ctx context.Context, taskID string, p aucPoller) (ASRNostreamResp, error) {
+	deadline := time.Now().Add(p.timeout)
+	interval := p.interval
+	for n := 1; ; n++ {
 		if err := ctx.Err(); err != nil {
 			return ASRNostreamResp{}, fmt.Errorf("ASR 识别已取消: %w", err)
 		}
 		if time.Now().After(deadline) {
-			return ASRNostreamResp{}, fmt.Errorf("等待火山 ASR 识别结果超时，请稍后重试")
+			return ASRNostreamResp{}, fmt.Errorf("%s", p.timeoutMsg)
 		}
-		resp, status, err := t.auc.Query(ctx, taskID)
+		resp, status, err := p.query(ctx, taskID)
 		if err != nil {
 			return ASRNostreamResp{}, err
+		}
+		if p.onPoll != nil {
+			p.onPoll(n, status)
 		}
 		switch status {
 		case "Completed":
@@ -148,15 +239,15 @@ func (t *ASRTool) pollAUC(ctx context.Context, taskID string) (ASRNostreamResp, 
 		case <-time.After(interval):
 		}
 		interval *= 2
-		if interval > asrPollMax {
-			interval = asrPollMax
+		if interval > p.max {
+			interval = p.max
 		}
 	}
 }
 
 // saveArtifacts 落盘转写文本（asr/<uuid>.txt）与 SRT 字幕（asr/<uuid>.srt，
 // srt 参数默认开启且分句非空时生成），并按 M2 契约处理 _out 重定向。
-func (t *ASRTool) saveArtifacts(in provider.TaskInput, resp ASRNostreamResp, source string) (provider.TaskOutput, error) {
+func (t *ASRTool) saveArtifacts(in provider.TaskInput, resp ASRNostreamResp, source, version string) (provider.TaskOutput, error) {
 	srtContent := ""
 	if asrSRTEnabled(in.Params) && len(resp.Segments) > 0 {
 		srtContent = BuildSRT(resp.Segments)
@@ -211,8 +302,61 @@ func (t *ASRTool) saveArtifacts(in provider.TaskInput, resp ASRNostreamResp, sou
 			"segments":    segs,
 			"duration_ms": resp.DurationMS,
 			"source":      source,
+			"version":     version,
 		},
 	}, nil
+}
+
+// idleFlashRequest 组装闲时版/极速版提交请求：format 必填、由 URL 扩展名推断；
+// 热词打包为 corpus.context 直传。错误消息含「仅支持」以命中参数错误退出码。
+func idleFlashRequest(audioURL, language, hotwords string) (aucTaskRequest, error) {
+	format, err := audioFormatFromURL(audioURL)
+	if err != nil {
+		return aucTaskRequest{}, err
+	}
+	return aucTaskRequest{
+		Audio: aucAudioMeta{URL: audioURL, Format: format, Language: strings.TrimSpace(language)},
+		Request: aucTaskOption{
+			ModelName:      "bigmodel",
+			EnableITN:      true,
+			EnablePunc:     true,
+			ShowUtterances: true,
+			Corpus:         hotwordsCorpus(hotwords),
+		},
+	}, nil
+}
+
+// audioFormatFromURL 从 URL 路径段推断音频格式（忽略查询串与片段）。
+// 闲时版/极速版提交 body 的 audio.format 必填（6561/2608618、6561/2608628）。
+func audioFormatFromURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("音频 URL 无法解析: %w", err)
+	}
+	switch ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(u.Path)), "."); ext {
+	case "wav", "mp3", "ogg", "spx", "amr", "aac", "m4a":
+		return ext, nil
+	}
+	return "", fmt.Errorf("无法从 URL 识别音频格式（闲时版/极速版仅支持 wav/mp3/ogg/spx/amr/aac/m4a，请使用带扩展名的音频 URL）")
+}
+
+// hotwordsCorpus 把逗号/分号分隔热词打包为闲时版/极速版的 corpus.context JSON 字符串；
+// 空热词返回 nil（不携带 corpus 字段）。协议约束：corpus 与 enable_auto_lang 互斥。
+func hotwordsCorpus(hotwords string) *aucCorpus {
+	fields := strings.FieldsFunc(hotwords, func(r rune) bool {
+		return r == ',' || r == '，' || r == ';' || r == '；'
+	})
+	words := make([]map[string]string, 0, len(fields))
+	for _, w := range fields {
+		if w = strings.TrimSpace(w); w != "" {
+			words = append(words, map[string]string{"word": w})
+		}
+	}
+	if len(words) == 0 {
+		return nil
+	}
+	raw, _ := json.Marshal(map[string]any{"hotwords": words})
+	return &aucCorpus{Context: string(raw)}
 }
 
 // audioFormatOf 由扩展名推断音频格式：mp3/wav/ogg/pcm 之外（m4a/aac/flac/mp4 及未知扩展名）
