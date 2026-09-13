@@ -23,6 +23,11 @@ export interface Task {
     speakers?: string[];
     source?: string;
     char_count?: number;
+    sentence_count?: number;
+    synthesized_chars?: number;
+    upstream_task_id?: string;
+    billed_chars?: number;
+    chunks?: number;
     audio_url_fallback?: boolean;
   };
 }

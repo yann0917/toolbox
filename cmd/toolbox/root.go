@@ -19,6 +19,8 @@ func newRootCmd() *cobra.Command {
 		newConfigCmd(),
 		newVoicesCmd(),
 		newTTSCommand(),
+		newTTSLongCommand(),
+		newTTSStreamCommand(),
 		newASRCommand(),
 		newPodcastCommand(),
 		newSeparateCommand(),

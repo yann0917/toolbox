@@ -8,7 +8,7 @@ export interface TaskEvent {
   error?: string;
   tasks?: unknown[];
   // 仅 progress 事件携带的工具自定义展示数据（后端 task.Event.Detail，如播客对话流轮次）。
-  detail?: { round_id?: number; speaker?: string; text?: string; rounds_done?: number };
+  detail?: { round_id?: number; speaker?: string; text?: string; rounds_done?: number; task_id?: string; poll?: number; status?: string; chunks?: number };
 }
 
 export function useTaskEvents(): TaskEvent | null {

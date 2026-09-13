@@ -11,6 +11,8 @@ import {
   Monitor,
   Moon,
   Podcast,
+  Radio,
+  ScrollText,
   Settings,
   Sun,
   Waves,
@@ -25,6 +27,8 @@ import { IconButton } from "../ui";
 const nav = [
   { to: "/", label: "工作台", desc: "工具总览与最近任务", icon: LayoutDashboard },
   { to: "/tts", label: "语音合成", desc: "文本转语音", icon: AudioLines },
+  { to: "/tts-long", label: "长文本合成", desc: "10 万字异步合成", icon: ScrollText },
+  { to: "/tts-stream", label: "流式合成", desc: "低延迟流式合成", icon: Radio },
   { to: "/asr", label: "语音识别", desc: "音频转文字与字幕", icon: Mic },
   { to: "/podcast", label: "播客工坊", desc: "生成双人播客", icon: Podcast },
   { to: "/separate", label: "人声分离", desc: "人声与背景音分轨", icon: Waves },

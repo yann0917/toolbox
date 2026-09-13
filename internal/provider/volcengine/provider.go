@@ -17,8 +17,9 @@ func RegisterAll(reg *provider.Registry, cfg config.Config, dataDir string) erro
 		APIKey:      cfg.Volc.Speech.APIKey,
 	}
 	ttsErr := reg.Register(NewTTSTool(cred, dataDir))
+	longErr := reg.Register(NewTTSLongTool(cred, dataDir))
+	streamErr := reg.Register(NewTTSStreamTool(cred, dataDir))
 	asrErr := reg.Register(NewASRTool(cred, dataDir))
 	podErr := reg.Register(NewPodcastTool(cred, dataDir))
 	sepErr := reg.Register(NewSeparateTool(cfg.Volc.MediaKit.APIKey, dataDir))
-	return errors.Join(ttsErr, asrErr, podErr, sepErr)
-}
+	return errors.Join(ttsErr, longErr, streamErr, asrErr, podErr, sepErr)}

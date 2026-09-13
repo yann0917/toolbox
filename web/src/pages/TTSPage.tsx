@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -15,7 +15,7 @@ import {
 import { apiBase, fetchJSON } from "../lib/api";
 import type { Artifact, TaskDetail, TaskStatus, Voice } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
-import { ALL_FILTER, VoiceFilterSelects, matchVoice, type VoiceFilters } from "../components/VoiceFilters";
+import { VoicePicker } from "../components/VoicePicker";
 import {
   Button,
   Card,
@@ -23,7 +23,6 @@ import {
   CardHeader,
   EmptyState,
   Field,
-  Input,
   MicroLabel,
   PageHeader,
   ProgressBar,
@@ -40,8 +39,6 @@ const FORMATS = ["mp3", "wav", "pcm", "ogg_opus"];
 const DEFAULT_VOICE = "zh_female_cancan_mars_bigtts";
 /** 与后端 tts tool 的 longTextThreshold 一致：超过即分段合成，且分段仅支持 mp3 */
 const LONG_TEXT_LIMIT = 1000;
-/** 音色下拉中的「自定义」哨兵值：允许填入内置列表之外（含声音复刻）的音色 ID */
-const CUSTOM_VOICE = "__custom__";
 
 /** 任务运行态：只保留界面需要的字段，不伪造完整 Task DTO */
 interface Run {
@@ -101,10 +98,8 @@ function ProgressBody({ run }: { run: Run }) {
 
 export default function TTSPage() {
   const [text, setText] = useState("");
+  // 生效音色 ID：由 VoicePicker（筛选/分组/自定义输入）上报
   const [voice, setVoice] = useState("");
-  // 音色接口不可用时的降级输入（自由文本音色 ID）
-  const [voiceText, setVoiceText] = useState("");
-  const [voiceFilter, setVoiceFilter] = useState<VoiceFilters>({ scene: ALL_FILTER, lang: ALL_FILTER });
   const [format, setFormat] = useState("mp3");
   const [speed, setSpeed] = useState(1);
   const [volume, setVolume] = useState(1);
@@ -119,41 +114,14 @@ export default function TTSPage() {
   const { toast } = useToast();
   const ev = useTaskEvents();
 
-  /* 音色列表：从 /api/voices 拉取，按 category 分组渲染。
+  /* 音色列表：从 /api/voices 拉取，选择逻辑由 VoicePicker 承担。
      只重试 1 次：该字段有降级路径，失败要尽快落到手动输入，而不是长时间停在"加载中" */
   const voicesQuery = useQuery({
     queryKey: ["voices"],
     queryFn: () => fetchJSON<{ voices: Voice[] }>("/api/voices"),
     retry: 1,
   });
-  const voiceList = useMemo(() => voicesQuery.data?.voices ?? [], [voicesQuery.data]);
-  // 拉取失败或列表为空 → 降级为自由文本输入
-  const voicesUsable = !voicesQuery.isError && voiceList.length > 0;
-  // 场景/语种筛选后的音色按主场景分组渲染
-  const filteredVoices = useMemo(() => voiceList.filter((v) => matchVoice(v, voiceFilter)), [voiceList, voiceFilter]);
-  const voiceGroups = useMemo(() => {
-    const byScene = new Map<string, Voice[]>();
-    for (const v of filteredVoices) {
-      const key = v.scenes[0];
-      const list = byScene.get(key) ?? [];
-      list.push(v);
-      byScene.set(key, list);
-    }
-    return [...byScene.entries()].sort(([a], [b]) => a.localeCompare(b, "zh"));
-  }, [filteredVoices]);
-  // 默认音色：筛选结果内的 DEFAULT_VOICE，否则筛选结果第一项（空筛选结果 → 空 → canSubmit 拦截）
-  const fallbackVoiceId = filteredVoices.find((v) => v.id === DEFAULT_VOICE)?.id ?? filteredVoices[0]?.id ?? "";
-  const voiceVal = !voicesUsable
-    ? DEFAULT_VOICE
-    : voice === CUSTOM_VOICE
-      ? CUSTOM_VOICE
-      : voice && filteredVoices.some((v) => v.id === voice)
-        ? voice
-        : fallbackVoiceId;
-  const voiceInput = voiceText.trim() || DEFAULT_VOICE;
-  // 自定义模式下用输入框的值（不兜默认，空值由 canSubmit 拦住）
-  const effectiveVoice =
-    voicesUsable && voice === CUSTOM_VOICE ? voiceText.trim() : voicesUsable ? voiceVal : voiceInput;
+  const voiceList = voicesQuery.data?.voices ?? [];
 
   /* WS 事件驱动当前任务进度；终态拉详情拿产物与最终状态 */
   useEffect(() => {
@@ -190,7 +158,7 @@ export default function TTSPage() {
         body: JSON.stringify({
           provider: "volcengine",
           tool: "tts",
-          params: { text, voice: effectiveVoice, format, speed_ratio: speed, volume_ratio: volume },
+          params: { text, voice, format, speed_ratio: speed, volume_ratio: volume },
         }),
       }),
     onSuccess: (d) => {
@@ -211,7 +179,7 @@ export default function TTSPage() {
   const longText = charCount > LONG_TEXT_LIMIT;
   // 长文本分段合成只支持 mp3：非 mp3 时行内警告并拦住提交（后端必然报错）
   const blockedByLongText = longText && format !== "mp3";
-  const canSubmit = text.trim() !== "" && !blockedByLongText && effectiveVoice.trim() !== "";
+  const canSubmit = text.trim() !== "" && !blockedByLongText && voice.trim() !== "";
 
   const artifacts = detail?.artifacts ?? [];
   const audioArtifacts = artifacts.filter((a) => a.kind === "audio");
@@ -276,63 +244,12 @@ export default function TTSPage() {
             aside={<span className="micro">volcengine · tts</span>}
           />
           <CardBody className="space-y-4">
-            {voicesUsable && (
-              <VoiceFilterSelects value={voiceFilter} onChange={setVoiceFilter} voices={voiceList} />
-            )}
-            <Field
-              label="音色"
-              hint={
-                voicesQuery.isLoading
-                  ? "正在拉取音色列表…"
-                  : voicesUsable
-                    ? filteredVoices.length === 0
-                      ? "当前筛选无匹配音色，请调整场景/语种。"
-                      : `官方音色列表，已按场景/语种筛选（匹配 ${filteredVoices.length} 个）。`
-                    : "音色接口不可用，已降级为手动输入音色 ID。"
-              }
-            >
-              {({ id, ...rest }) =>
-                voicesUsable ? (
-                  <div className="space-y-2">
-                    <Select id={id} value={voiceVal} onChange={(e) => setVoice(e.target.value)} {...rest}>
-                      {voiceGroups.map(([scene, list]) => (
-                        <optgroup key={scene} label={scene}>
-                          {list.map((v) => (
-                            <option key={v.id} value={v.id}>
-                              {v.name} · {v.gender} · {v.languages[0]}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                      <option value={CUSTOM_VOICE}>自定义音色 ID…（含声音复刻音色）</option>
-                    </Select>
-                    {voice === CUSTOM_VOICE ? (
-                      <Input
-                        value={voiceText}
-                        onChange={(e) => setVoiceText(e.target.value)}
-                        placeholder="粘贴自定义 / 复刻音色 ID"
-                        aria-label="自定义音色 ID"
-                      />
-                    ) : (
-                      voiceVal !== "" && (
-                        <p className="truncate font-mono text-[11px] text-muted" title={voiceVal}>
-                          {voiceVal}
-                        </p>
-                      )
-                    )}
-                  </div>
-                ) : (
-                  <Input
-                    id={id}
-                    value={voiceText}
-                    onChange={(e) => setVoiceText(e.target.value)}
-                    placeholder={DEFAULT_VOICE}
-                    disabled={voicesQuery.isLoading}
-                    {...rest}
-                  />
-                )
-              }
-            </Field>
+            <VoicePicker
+              voices={voiceList}
+              loading={voicesQuery.isLoading}
+              defaultVoiceId={DEFAULT_VOICE}
+              onEffectiveVoiceChange={setVoice}
+            />
 
             <Field label="音频格式" aside={format === "mp3" ? "推荐" : undefined}>
               {({ id, ...rest }) => (

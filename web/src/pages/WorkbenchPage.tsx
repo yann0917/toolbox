@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, AudioLines, Clock, Mic, Podcast, Waves } from "lucide-react";
+import { ArrowUpRight, AudioLines, Clock, Mic, Podcast, Radio, ScrollText, Waves } from "lucide-react";
 import { fetchJSON } from "../lib/api";
 import type { Task } from "../lib/types";
 import { Card, CardHeader, EmptyState, PageHeader, Skeleton, StatusBadge } from "../ui";
 
 const tools = [
   { to: "/tts", name: "语音合成", desc: "文本转语音，音色与语速可调", icon: AudioLines, tool: "tts" },
+  { to: "/tts-long", name: "长文本合成", desc: "10 万字异步合成，可出字幕", icon: ScrollText, tool: "tts_long" },
+  { to: "/tts-stream", name: "流式合成", desc: "低延迟流式合成，多语种方言", icon: Radio, tool: "tts_stream" },
   { to: "/asr", name: "语音识别", desc: "音频转文字，分句时间戳与字幕", icon: Mic, tool: "asr" },
   { to: "/podcast", name: "播客工坊", desc: "生成双人对话播客", icon: Podcast, tool: "podcast" },
   { to: "/separate", name: "人声分离", desc: "人声与背景音分轨输出", icon: Waves, tool: "separate" },
@@ -78,7 +80,7 @@ export default function WorkbenchPage() {
     <>
       <PageHeader
         title="工作台"
-        description="四个语音工具的入口与运行概况"
+        description="语音工具入口与运行概况"
         actions={
           <Link
             to="/history"

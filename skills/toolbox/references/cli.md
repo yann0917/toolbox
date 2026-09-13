@@ -4,6 +4,8 @@
 
 - [通用约定](#通用约定)
 - [tts 语音合成](#tts-语音合成)
+- [tts-long 长文本语音合成](#tts-long-长文本语音合成)
+- [tts-stream 流式语音合成](#tts-stream-流式语音合成)
 - [asr 语音识别](#asr-语音识别)
 - [podcast 播客生成](#podcast-播客生成)
 - [separate 人声背景音分离](#separate-人声背景音分离)
@@ -55,6 +57,74 @@ toolbox tts <text | --file path> [flags]
 | `--json` | 关 | 机器可读输出 |
 
 超过 1000 字的长文本自动改走分段合成后拼接（仅支持 mp3，其他格式长文本会报参数错误），无需手动处理。
+
+## tts-long 长文本语音合成
+
+```bash
+toolbox tts-long <text | --file path> [flags]
+```
+
+异步长文本合成（官方 `/api/v3/tts/submit` + `/api/v3/tts/query`，seed-tts-2.0 资源）：
+提交任务后轮询，完成时下载音频；支持 ≤10 万字符、分句时间戳与 SRT 字幕。
+合成耗时与文本量正相关（分钟级），脚本调用请用后台方式执行并等待进程退出。
+
+| flag | 默认 | 说明 |
+|---|---|---|
+| `--voice` | `zh_female_vv_uranus_bigtts` | 2.0/复刻音色 ID，用 `toolbox voices list` 查询（generation=2.0） |
+| `--format` | `mp3` | `mp3` / `pcm` / `ogg_opus`（无 wav） |
+| `--sample-rate` | `24000` | Hz；ogg_opus 仅支持 48000（自动强制） |
+| `--speech-rate` | `0` | 语速 -50~100，100=2 倍速 |
+| `--loudness-rate` | `0` | 音量 -50~100，100=2 倍音量 |
+| `--timestamps` | 关 | 开启时间戳，额外产出 `.srt` 字幕（artifacts kind=`subtitle`） |
+| `--resource` | `seed-tts-2.0` | 复刻音色传 `seed-icl-2.0` |
+| `--model` | 空 | 复刻音色的模型版本（`req_params.model` 透传） |
+| `--explicit-language` | 空 | 朗读语种：zh-cn/en/es-mx/id/pt-br |
+| `--pitch` | `0` | 音调 -12~12 |
+| `--bit-rate` | 服务端默认 | `64000` / `160000`；pcm 不支持指定 |
+| `--aigc-watermark` | 关 | 音频结尾 AIGC 节奏标识 |
+| `--file` | — | 从文件读文本（大段文本推荐） |
+| `--out` | 数据目录自动命名 | 产物路径（SRT 跟随同路径 `.srt`） |
+| `--json` | 关 | 机器可读输出 |
+
+- 文本预检（退出码 2）：超 10 万字符；非法 ASCII 控制字符（除 `\t` `\n`，`\r` 算非法）占比 >10%。
+- summary 含 `char_count` / `synthesized_chars` / `sentence_count` / `upstream_task_id`（火山侧任务 ID，反馈定位用）。
+- 音频与链接在服务端保留 7 天 / 1 小时；toolbox 查询成功后立即下载落盘，不依赖链接有效期。
+
+## tts-stream 流式语音合成
+
+```bash
+toolbox tts-stream <text | --file path> [flags]
+```
+
+单向流式合成（官方 `/api/v3/tts/unidirectional`，HTTP Chunked）：一次性输入文本，
+服务端流式返回音频分片，到齐后落盘。seed-tts-2.0 模型，支持 20 语种、8 方言、
+字级时间戳字幕（仅中英）与语音指令（`--context-text`，不参与计费）。
+
+| flag | 默认 | 说明 |
+|---|---|---|
+| `--voice` | `zh_female_vv_uranus_bigtts` | 2.0/复刻音色 ID，用 `toolbox voices list` 查询 |
+| `--format` | `mp3` | `mp3` / `pcm`（流式推荐）/ `ogg_opus` / `wav`（不建议） |
+| `--sample-rate` | `24000` | Hz；ogg_opus 仅 48000（自动强制） |
+| `--speech-rate` | `0` | 语速 -50~100，100=2 倍速 |
+| `--loudness-rate` | `0` | 音量 -50~100，100=2 倍音量 |
+| `--subtitle` | 关 | 字级时间戳按句末标点聚合并产出 `.srt`（仅中英语种） |
+| `--resource` | `seed-tts-2.0` | 复刻音色传 `seed-icl-2.0` |
+| `--model` | 空 | 复刻音色的模型版本；指定后不支持 `--context-text` |
+| `--explicit-language` | 空 | 20 语种：zh-cn/en/ja/ko/de/fr/ru/th/vi/fil/ms/ar/pl/tr/sv 等 |
+| `--explicit-dialect` | 空 | 方言：beijing/dongbei/henan/shaanxi/shanghai/sichuan/tianjin/yue |
+| `--pitch` | `0` | 音调 -12~12 |
+| `--bit-rate` | 服务端默认 | `64000` / `160000`；wav/pcm 不支持 |
+| `--silence-duration` | `0` | 文本末尾静音 ms（0-30000） |
+| `--context-text` | 空 | 语音指令，如「你可以用特别痛心的语气说话吗」（仅 2.0 音色） |
+| `--tone-fidelity` | 关 | 还原模式，尽量复刻训练音频风格（仅复刻音色，不支持跨语种） |
+| `--aigc-watermark` | 关 | 音频结尾 AIGC 节奏标识 |
+| `--file` | — | 从文件读文本 |
+| `--out` | 数据目录自动命名 | 产物路径（SRT 跟随同路径 `.srt`） |
+| `--json` | 关 | 机器可读输出 |
+
+- summary 含 `char_count` / `billed_chars`（计费字符数，含标点）/ `chunks`（音频分片数）/ `duration_ms`。
+- 三条 TTS 通道选择：短文本秒级用 `tts`；2.0 模型/多语种/方言/语音指令用 `tts-stream`；
+  ≤10 万字长文本（分句时间戳）用 `tts-long`。
 
 ## asr 语音识别
 

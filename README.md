@@ -1,10 +1,10 @@
 # toolbox
 
-个人自用的多媒体 AI 工具箱：一套 Go 二进制，既是 CLI 也是 Web 控制台，首批接入火山引擎的四个能力。
+个人自用的多媒体 AI 工具箱：一套 Go 二进制，既是 CLI 也是 Web 控制台，首批接入火山引擎的六个能力。
 
 | 能力 | 说明 | 接口形态 |
 |---|---|---|
-| 语音合成 TTS | 文本转语音，多音色、语速音量可调 | HTTP + WebSocket |
+| 语音合成 TTS | 文本转语音：同步秒级 / 流式低延迟（20 语种、8 方言、字级字幕、语音指令）/ 长文本（≤10 万字）异步合成，均可出 SRT 字幕 | HTTP + Chunked 流式 + 异步任务 + WebSocket |
 | 语音识别 ASR | 本地文件/URL 转文字，分句时间戳、SRT 字幕 | 三版本：本地直发（官方协议）/ URL 异步（标准） / 闲时 / 极速同步 |
 | 语音播客 | 主题/长文本/网页/对话稿一键生成双人播客 | WebSocket 事件流，支持断点续传 |
 | 人声背景音分离 | 公网音视频 URL 多轨分离：Audio/Music 双轨（人声+背景/伴奏），Drama/Narrate 三轨（人声+音乐+音效） | AI MediaKit REST（产物 24h 临时链接，立即转存本地） |
@@ -20,7 +20,7 @@
 
 界面按「专业音频设备」的调性设计：近黑面板 + 琥珀信号色、刻印微标签、等宽数字读数，暗色默认且亮色完整适配（可跟随系统）。
 
-- **工作台**：四个工具入口 + 真实运行统计（任务数/成功率/累计耗时）+ 最近任务
+- **工作台**：六个工具入口 + 真实运行统计（任务数/成功率/累计耗时）+ 最近任务
 - **波形播放器**：自研 `WavePlayer` —— WebAudio 解码真实峰值、canvas 波形、已播段着色、点击/拖拽定位、mono 时间码
 - **全局播放条**：跨页面常驻，同一时刻只播一路音频；历史页与各工具页的结果都可直接试听
 - **工具联动**：人声分离页的人声轨可「送 ASR 识别」——产物直接作为识别输入，无需公网 URL
@@ -43,6 +43,12 @@ make all
 
 # CLI 合成（机器可读输出，退出码 0 成功）
 ./bin/toolbox tts "你好，toolbox" --out /tmp/hello.mp3 --json
+
+# 长文本异步合成（≤10 万字，seed-tts-2.0；--timestamps 额外产出 SRT 字幕）
+./bin/toolbox tts-long --file book.txt --timestamps --out /tmp/audiobook.mp3 --json
+
+# 流式合成（低延迟；20 语种、8 方言、语音指令 --context-text、字级字幕 --subtitle）
+./bin/toolbox tts-stream "用粤语说一段开场白" --explicit-dialect yue --subtitle --out /tmp/intro.mp3 --json
 
 # 音频转文字（--srt 默认产出 SRT 字幕，--srt=false 关闭；其他格式见 skill 参考）
 ./bin/toolbox asr /tmp/recording.mp3 --out /tmp/transcript.txt --json

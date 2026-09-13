@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, Download, RefreshCw, Trash2 } from "lucide-react";
-import { apiBase, fetchJSON } from "../lib/api";
-import type { Artifact, Task, TaskDetail } from "../lib/types";
+import { Clock, RefreshCw, Trash2 } from "lucide-react";
+import { fetchJSON } from "../lib/api";
+import type { Task, TaskDetail } from "../lib/types";
+import { ArtifactRow } from "../components/ArtifactRow";
 import {
   Card,
   CardHeader,
@@ -12,70 +13,23 @@ import {
   PageHeader,
   Skeleton,
   StatusBadge,
-  WavePlayer,
   useToast,
 } from "../ui";
 
 const toolName: Record<string, string> = {
   tts: "语音合成",
+  tts_long: "长文本合成",
+  tts_stream: "流式合成",
   asr: "语音识别",
   podcast: "播客工坊",
   separate: "人声分离",
 };
 
-const artifactLabel: Record<string, string> = {
-  audio: "音频",
-  transcript: "转写文本",
-  subtitle: "字幕",
-  dialog: "对话稿",
-};
-
-const trackLabel: Record<string, string> = {
-  voice: "人声轨",
-  background: "背景音轨",
-  music: "音乐轨",
-  sfx: "音效轨",
-};
-
-function formatSize(bytes: number): string {
-  if (!bytes) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function ArtifactRow({ a }: { a: Artifact }) {
-  const isAudio = a.kind === "audio";
-  const label = a.meta?.track ? trackLabel[a.meta.track] : artifactLabel[a.kind] ?? a.kind;
-  return (
-    <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-line bg-raise-2 p-3">
-      <span className="w-16 shrink-0 text-xs text-fg-2">{label}</span>
-      {isAudio ? (
-        <WavePlayer
-          src={`${apiBase}/api/artifacts/${a.id}/stream`}
-          title={a.filename}
-          sub={label}
-          durationSec={a.duration_ms ? a.duration_ms / 1000 : undefined}
-          className="min-w-0 flex-1"
-        />
-      ) : (
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">{a.filename}</span>
-      )}
-      <span className="hidden shrink-0 font-mono text-[11px] text-muted sm:inline">{formatSize(a.size)}</span>
-      <a
-        href={`${apiBase}/api/artifacts/${a.id}/download`}
-        className="inline-flex shrink-0 items-center gap-1 text-xs text-fg-2 transition-colors duration-150 hover:text-accent"
-      >
-        <Download size={13} strokeWidth={1.75} />
-        下载
-      </a>
-    </div>
-  );
-}
-
 const filters = [
   { value: "", label: "全部" },
   { value: "tts", label: "语音合成" },
+  { value: "tts_long", label: "长文本合成" },
+  { value: "tts_stream", label: "流式合成" },
   { value: "asr", label: "语音识别" },
   { value: "podcast", label: "播客工坊" },
   { value: "separate", label: "人声分离" },
