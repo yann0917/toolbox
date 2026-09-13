@@ -1,0 +1,130 @@
+name: Release
+
+# 手动触发发布：版本号可填可不填，留空则在最新 tag 基础上自动把 patch +1。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号 x.y.z（可带 v 前缀；留空 = 最新版本 patch +1）"
+        required: false
+        default: ""
+      draft:
+        description: "创建为草稿 Release（不立即公开）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# 同一时间只允许一个发布流程，避免并发打 tag
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 构建并发布
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - name: 检出代码（含全部 tag，用于计算版本号）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Node（前端编译要求 24+）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装 Go（版本取自 go.mod）
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 解析版本号
+        id: ver
+        env:
+          # 通过 env 传递，避免输入内容直接插入 shell 脚本
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          input="${INPUT_VERSION#v}"   # 允许填 v1.2.3
+
+          if [ -n "$input" ]; then
+            ver="$input"
+            echo "使用手动指定版本：$ver"
+          else
+            latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+            if [ -z "$latest" ]; then
+              ver="0.1.0"
+              echo "未发现既有 tag，使用初始版本：$ver"
+            else
+              base="${latest#v}"
+              major="${base%%.*}"
+              rest="${base#*.}"
+              minor="${rest%%.*}"
+              patch="${rest#*.}"
+              ver="$major.$minor.$((patch + 1))"
+              echo "基于最新 tag $latest 自动递增 patch：$ver"
+            fi
+          fi
+
+          if ! printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::版本号格式非法：'$ver'，应为 x.y.z（例如 1.2.3）"
+            exit 1
+          fi
+
+          tag="v$ver"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::tag $tag 已存在，请指定一个未使用过的版本号"
+            exit 1
+          fi
+
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: 运行测试
+        run: go test ./... -count=1
+
+      - name: 构建发布包（前端 + 五平台交叉编译）
+        run: make dist VERSION=${{ steps.ver.outputs.version }}
+
+      - name: 校验产物
+        run: |
+          set -euo pipefail
+          ls -lh dist/
+          count="$(ls -1 dist/*.zip 2>/dev/null | wc -l | tr -d ' ')"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::没有生成任何发布包"
+            exit 1
+          fi
+          echo "共生成 $count 个发布包"
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          files: dist/*.zip
+          draft: ${{ inputs.draft }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      - name: 汇总
+        run: |
+          echo "### 发布完成 :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 版本：\`${{ steps.ver.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 草稿：\`${{ inputs.draft }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 发布包 | 大小 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for f in dist/*.zip; do
+            echo "| \`$(basename "$f")\` | $(du -h "$f" | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
+          done
