@@ -198,7 +198,7 @@ func TestTTSLongQueryStates(t *testing.T) {
 				"code": 20000000,
 				"data": map[string]any{
 					"task_id": "t1", "task_status": 2,
-					"audio_url": "http://mock/audio/abc.mp3",
+					"audio_url":       "http://mock/audio/abc.mp3",
 					"req_text_length": 100, "synthesize_text_length": 98,
 					"url_expire_time": 1777777777,
 					"sentences": []map[string]any{

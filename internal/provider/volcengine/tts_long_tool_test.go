@@ -64,7 +64,7 @@ func TestTTSLongToolRunParamErrors(t *testing.T) {
 	}{
 		{"缺文本", map[string]any{}, "缺少必填参数"},
 		{"空文本", map[string]any{"text": ""}, "缺少必填参数"},
-		{"超限", map[string]any{"text": strings.Repeat("字", ttsLongMaxLength + 1)}, "超出长度限制"},
+		{"超限", map[string]any{"text": strings.Repeat("字", ttsLongMaxLength+1)}, "超出长度限制"},
 		{"非法字符", map[string]any{"text": "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0b你好"}, "非法字符"},
 		{"格式不支持", map[string]any{"text": "你好", "format": "wav"}, "仅支持"},
 		{"采样率非法", map[string]any{"text": "你好", "sample_rate": "12345"}, "不支持的采样率"},
@@ -111,7 +111,7 @@ func TestTTSLongToolRunSuccess(t *testing.T) {
 				"code": 20000000,
 				"data": map[string]any{
 					"task_id": "up-task-1", "task_status": 2,
-					"audio_url": audioURL,
+					"audio_url":       audioURL,
 					"req_text_length": 8, "synthesize_text_length": 8,
 					"sentences": []map[string]any{
 						{"text": "第一句。", "startTime": 0.0, "endTime": 1.0},

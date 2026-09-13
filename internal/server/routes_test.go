@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yann0917/toolbox/internal/service"
 	"github.com/yann0917/toolbox/internal/store"
@@ -42,7 +43,47 @@ func newTestServer(t *testing.T) (*httptest.Server, *Server) {
 	svc.StartEngine(s.Hub().Notify, 2)
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
+	// 最后注册 → 最先执行：先等后台任务落定，再关服务、删临时目录。
+	// 任务在独立 goroutine 中执行，测试若先结束，随后写库会与 t.TempDir() 清理竞争
+	//（表现为 "directory not empty" / "attempt to write a readonly database"，-race 下更易触发）。
+	t.Cleanup(func() { waitTasksSettled(t, ts) })
 	return ts, s
+}
+
+// waitTasksSettled 轮询任务列表，直到没有 pending/running 的任务或超时。
+func waitTasksSettled(t *testing.T, ts *httptest.Server) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(ts.URL + "/api/tasks?size=100")
+		if err != nil {
+			return // 服务已不可达，交给后续清理步骤
+		}
+		var e struct {
+			Data struct {
+				Items []struct {
+					Status string `json:"status"`
+				} `json:"items"`
+			} `json:"data"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&e)
+		_ = resp.Body.Close()
+		if decodeErr != nil {
+			return
+		}
+		busy := false
+		for _, it := range e.Data.Items {
+			if it.Status == "pending" || it.Status == "running" {
+				busy = true
+				break
+			}
+		}
+		if !busy {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Logf("等待任务落定超时（5s），可能仍有后台任务在写库")
 }
 
 func TestHealth(t *testing.T) {
@@ -273,8 +314,30 @@ func TestCreateTaskWithArtifactInput(t *testing.T) {
 		t.Fatalf("submit code = %d (%s)", created.Code, created.Message)
 	}
 	createdData, _ := created.Data.(map[string]any)
-	if id, _ := createdData["task_id"].(string); id == "" {
-		t.Errorf("created = %v", created)
+	taskID, _ := createdData["task_id"].(string)
+	if taskID == "" {
+		t.Fatalf("created = %v", created)
+	}
+
+	// 断言产物路径真的进了 files：无凭证时 ASR 的失败原因必须是「凭证未配置」，
+	// 而不是「缺少输入」——后者说明 artifact → files["audio"] 的组装没生效。
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		detail := getEnvelope(t, ts.URL+"/api/tasks/"+taskID)
+		d, _ := detail.Data.(map[string]any)
+		task, _ := d["task"].(map[string]any)
+		status, _ := task["status"].(string)
+		if status == "succeeded" || status == "failed" || status == "canceled" || status == "interrupted" {
+			errMsg, _ := task["error"].(string)
+			if !strings.Contains(errMsg, "凭证") {
+				t.Errorf("任务失败原因 = %q，期望包含「凭证」（说明 artifact 未注入 files）", errMsg)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("任务未在 3s 内到达终态，status = %q", status)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

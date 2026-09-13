@@ -85,9 +85,9 @@ func NewTTSStreamClientWithBaseURL(cred SpeechCred, baseURL string) *TTSStreamCl
 // ttsStreamLine 流式响应行：中间分片 code=0 携带 data；终态/错误行可能携带
 // sentence（字级时间戳）与 usage（计费统计）。
 type ttsStreamLine struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    string `json:"data"`
+	Code     int    `json:"code"`
+	Message  string `json:"message"`
+	Data     string `json:"data"`
 	Sentence struct {
 		Text  string          `json:"text"`
 		Words []ttsStreamWord `json:"words"`
@@ -184,14 +184,14 @@ func (c *TTSStreamClient) SynthesizeStream(ctx context.Context, req TTSStreamSub
 // ttsStreamReqParams 组装 req_params（omitempty 保证可选字段缺省不下发）。
 func ttsStreamReqParams(req TTSStreamSubmitReq) map[string]any {
 	params := map[string]any{
-		"text":   req.Text,
+		"text":    req.Text,
 		"speaker": req.Speaker,
 		"audio_params": map[string]any{
-			"format":        req.Format,
-			"sample_rate":   req.SampleRate,
-			"bit_rate":      req.BitRate,
-			"speech_rate":   req.SpeechRate,
-			"loudness_rate": req.LoudnessRate,
+			"format":          req.Format,
+			"sample_rate":     req.SampleRate,
+			"bit_rate":        req.BitRate,
+			"speech_rate":     req.SpeechRate,
+			"loudness_rate":   req.LoudnessRate,
 			"enable_subtitle": req.EnableSubtitle,
 		},
 	}

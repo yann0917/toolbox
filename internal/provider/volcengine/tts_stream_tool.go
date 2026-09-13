@@ -176,8 +176,8 @@ func (t *TTSStreamTool) Run(ctx context.Context, in provider.TaskInput, report p
 
 	req := TTSStreamSubmitReq{
 		Text: text, Speaker: voice, Resource: resource,
-		Model:            paramString(in.Params, "model"),
-		Format:           format, SampleRate: sampleRate, BitRate: bitRate,
+		Model:  paramString(in.Params, "model"),
+		Format: format, SampleRate: sampleRate, BitRate: bitRate,
 		SpeechRate:       toInt(in.Params["speech_rate"], 0),
 		LoudnessRate:     toInt(in.Params["loudness_rate"], 0),
 		EnableSubtitle:   paramBool(in.Params, "subtitle", "enable_subtitle"),

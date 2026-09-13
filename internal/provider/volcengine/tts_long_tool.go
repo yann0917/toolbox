@@ -177,8 +177,8 @@ func (t *TTSLongTool) Run(ctx context.Context, in provider.TaskInput, report pro
 
 	req := TTSLongSubmitReq{
 		Text: text, Speaker: voice, Resource: resource,
-		Model:            paramString(in.Params, "model"),
-		Format:           format, SampleRate: sampleRate, BitRate: bitRate,
+		Model:  paramString(in.Params, "model"),
+		Format: format, SampleRate: sampleRate, BitRate: bitRate,
 		SpeechRate: speechRate, LoudnessRate: loudnessRate,
 		EnableTimestamp:  timestamps,
 		ExplicitLanguage: paramString(in.Params, "explicit_language"),
@@ -311,11 +311,11 @@ func (t *TTSLongTool) saveArtifacts(in provider.TaskInput, text, taskID string, 
 	return provider.TaskOutput{
 		Artifacts: arts,
 		Summary: map[string]any{
-			"char_count":          utf8.RuneCountInString(text),
-			"synthesized_chars":   result.SynthesizeTextLength,
-			"sentence_count":      len(result.Sentences),
-			"upstream_task_id":    taskID,
-			"req_text_length":     result.ReqTextLength,
+			"char_count":        utf8.RuneCountInString(text),
+			"synthesized_chars": result.SynthesizeTextLength,
+			"sentence_count":    len(result.Sentences),
+			"upstream_task_id":  taskID,
+			"req_text_length":   result.ReqTextLength,
 		},
 	}, nil
 }

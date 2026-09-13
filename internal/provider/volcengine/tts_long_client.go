@@ -142,10 +142,10 @@ type ttsLongEnvelope struct {
 
 // ttsLongSentence 协议时间戳：秒（float64），归一为毫秒。
 type ttsLongSentence struct {
-	Text      string          `json:"text"`
-	StartTime float64         `json:"startTime"`
-	EndTime   float64         `json:"endTime"`
-	Words     []ttsLongWord   `json:"words"`
+	Text      string        `json:"text"`
+	StartTime float64       `json:"startTime"`
+	EndTime   float64       `json:"endTime"`
+	Words     []ttsLongWord `json:"words"`
 }
 
 type ttsLongWord struct {
@@ -165,9 +165,9 @@ func (c *TTSLongClient) Submit(ctx context.Context, req TTSLongSubmitReq) (strin
 	apiReq.User.UID = "toolbox"
 	apiReq.User.UniqueID = uniqueID
 	apiReq.ReqParams = ttsLongReqParams{
-		Text:             req.Text,
-		Model:            req.Model,
-		Speaker:          req.Speaker,
+		Text:    req.Text,
+		Model:   req.Model,
+		Speaker: req.Speaker,
 		AudioParams: ttsLongAudioParams{
 			Format:          req.Format,
 			SampleRate:      req.SampleRate,

@@ -22,4 +22,5 @@ func RegisterAll(reg *provider.Registry, cfg config.Config, dataDir string) erro
 	asrErr := reg.Register(NewASRTool(cred, dataDir))
 	podErr := reg.Register(NewPodcastTool(cred, dataDir))
 	sepErr := reg.Register(NewSeparateTool(cfg.Volc.MediaKit.APIKey, dataDir))
-	return errors.Join(ttsErr, longErr, streamErr, asrErr, podErr, sepErr)}
+	return errors.Join(ttsErr, longErr, streamErr, asrErr, podErr, sepErr)
+}
