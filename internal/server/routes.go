@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yann0917/toolbox/internal/config"
 	"github.com/yann0917/toolbox/internal/provider/volcengine"
 	"github.com/yann0917/toolbox/internal/store"
 )
@@ -252,16 +251,12 @@ func (s *Server) putSettings(c *gin.Context) {
 		fail(c, CodeBadRequest, "参数错误")
 		return
 	}
-	setIfNotEmpty := func(key, val string) {
-		if val != "" {
-			_ = config.Set(key, val)
-		}
+	// 持久化 + 热应用一体完成：内存配置换快照、工具实例按新凭证重注册，保存即生效。
+	if err := s.svc.SaveCredentials(req.AppID, req.AccessToken, req.APIKey, req.MediaKitAPIKey); err != nil {
+		failErr(c, err)
+		return
 	}
-	setIfNotEmpty("volc.speech.app_id", req.AppID)
-	setIfNotEmpty("volc.speech.access_token", req.AccessToken)
-	setIfNotEmpty("volc.speech.api_key", req.APIKey)
-	setIfNotEmpty("volc.mediakit.api_key", req.MediaKitAPIKey)
-	ok(c, gin.H{"ok": true, "note": "凭证已保存，重启 Web 服务后生效"})
+	ok(c, gin.H{"ok": true, "note": "凭证已保存并即时生效"})
 }
 
 func (s *Server) testConnection(c *gin.Context) {

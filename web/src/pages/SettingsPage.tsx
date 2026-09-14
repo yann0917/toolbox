@@ -87,7 +87,7 @@ export default function SettingsPage() {
     mutationFn: (body: Record<string, string>) =>
       fetchJSON("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
     onSuccess: () => {
-      toast({ tone: "ok", title: "凭证已保存", description: "重启 Web 服务后生效。" });
+      toast({ tone: "ok", title: "凭证已保存", description: "已即时生效，无需重启服务。" });
       void refetch();
     },
     onError: (e: Error) => toast({ tone: "error", title: "保存失败", description: e.message }),
@@ -192,7 +192,6 @@ export default function SettingsPage() {
           <Button type="submit" variant="primary" loading={save.isPending}>
             保存凭证
           </Button>
-          <span className="text-[11px] text-muted">保存后需重启 Web 服务生效</span>
         </div>
       </form>
 

@@ -142,6 +142,44 @@ func TestToolsAndTaskSubmit(t *testing.T) {
 	}
 }
 
+// TestPutSettingsHotReload 保存凭证后立即 GET 应读到新值（热加载，无需重启）。
+// SaveCredentials 写 $HOME/.toolbox/config.yaml，须隔离 HOME。
+func TestPutSettingsHotReload(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ts, _ := newTestServer(t)
+
+	body := `{"app_id":"app-1","access_token":"tok-1","api_key":"key-1","mediakit_api_key":"mk-1"}`
+	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/settings", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var putE envelope
+	_ = json.NewDecoder(resp.Body).Decode(&putE)
+	if putE.Code != 0 {
+		t.Fatalf("put code = %d (%s)", putE.Code, putE.Message)
+	}
+
+	got := getEnvelope(t, ts.URL+"/api/settings")
+	gotData, _ := got.Data.(map[string]any)
+	speech, _ := gotData["volc"].(map[string]any)["speech"].(map[string]any)
+	if speech["app_id"] != "app-1" {
+		t.Errorf("app_id = %v, want app-1（保存后应即时生效）", speech["app_id"])
+	}
+	if speech["api_key"] != "key-1" {
+		t.Errorf("api_key = %v, want key-1", speech["api_key"])
+	}
+	mk, _ := gotData["volc"].(map[string]any)["mediakit"].(map[string]any)
+	if mk["has_api_key"] != true {
+		t.Errorf("mediakit.has_api_key = %v, want true", mk["has_api_key"])
+	}
+}
+
 // TestSettingsTestConnection 连通性检测响应结构：顶层 ok/message 仍为语音探测结果
 // （向后兼容，前端 SettingsPage 直接消费），新增 mediakit 段（独立 ok/message）。
 // 测试环境无凭证：语音校验与 MediaKit 未配置检查均在发网络请求前返回，不会外联。
