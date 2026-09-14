@@ -19,6 +19,7 @@ type Task struct {
 	Tool         string     `gorm:"size:32;index"`
 	Status       TaskStatus `gorm:"size:16;index"`
 	Params       string     `gorm:"type:text"`
+	Input        string     `gorm:"type:text"` // 原始输入引用 JSON（file_ids/artifact_input），供重跑与回放溯源；CLI 直传本地路径时为空
 	Summary      string     `gorm:"type:text"` // 任务完成摘要 JSON（provider.TaskOutput.Summary 序列化）
 	Progress     int
 	ProgressNote string

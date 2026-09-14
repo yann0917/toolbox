@@ -49,6 +49,15 @@ func New(db *store.DB, reg *provider.Registry, dataDir string, concurrency int, 
 	}
 }
 
+// InputRef 记录 Web 提交边界的原始输入引用（file_ids/artifact_input 在进引擎前
+// 就被解析成本地路径，不落 Params）；重跑与前端回放依赖它溯源。CLI 直传本地路径，无需引用。
+type InputRef struct {
+	FileIDs       []string `json:"file_ids,omitempty"`
+	ArtifactInput string   `json:"artifact_input,omitempty"`
+}
+
+func (r *InputRef) empty() bool { return r == nil || (len(r.FileIDs) == 0 && r.ArtifactInput == "") }
+
 // emit 在引擎 goroutine 内同步调用 notify 回调。
 // 契约：notify 由任务执行 goroutine 同步触发，订阅方必须非阻塞
 // （使用带缓冲的 channel 并配合丢弃策略），不得在回调内做耗时操作或再回调引擎。
@@ -72,7 +81,7 @@ func validate(t provider.Tool, params map[string]any) error {
 	return nil
 }
 
-func (e *Engine) createTask(providerName, toolName string, params map[string]any) (*store.Task, provider.Tool, error) {
+func (e *Engine) createTask(providerName, toolName string, params map[string]any, ref *InputRef) (*store.Task, provider.Tool, error) {
 	tool, ok := e.reg.Get(providerName, toolName)
 	if !ok {
 		return nil, nil, fmt.Errorf("未知工具: %s.%s", providerName, toolName)
@@ -84,6 +93,10 @@ func (e *Engine) createTask(providerName, toolName string, params map[string]any
 	t := &store.Task{
 		ID: uuid.NewString(), Provider: providerName, Tool: toolName,
 		Status: store.StatusPending, Params: string(raw),
+	}
+	if !ref.empty() {
+		refRaw, _ := json.Marshal(ref)
+		t.Input = string(refRaw)
 	}
 	if err := e.db.CreateTask(t); err != nil {
 		return nil, nil, err
@@ -169,7 +182,12 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 }
 
 func (e *Engine) Submit(providerName, toolName string, params map[string]any, files map[string]string) (string, error) {
-	t, tool, err := e.createTask(providerName, toolName, params)
+	return e.SubmitRef(providerName, toolName, params, files, nil)
+}
+
+// SubmitRef 与 Submit 等价，额外把原始输入引用落库（Web 提交边界使用）。
+func (e *Engine) SubmitRef(providerName, toolName string, params map[string]any, files map[string]string, ref *InputRef) (string, error) {
+	t, tool, err := e.createTask(providerName, toolName, params, ref)
 	if err != nil {
 		return "", err
 	}
@@ -178,7 +196,7 @@ func (e *Engine) Submit(providerName, toolName string, params map[string]any, fi
 }
 
 func (e *Engine) SubmitSync(ctx context.Context, providerName, toolName string, params map[string]any, files map[string]string) (*store.Task, []store.Artifact, error) {
-	t, tool, err := e.createTask(providerName, toolName, params)
+	t, tool, err := e.createTask(providerName, toolName, params, nil)
 	if err != nil {
 		return nil, nil, err
 	}

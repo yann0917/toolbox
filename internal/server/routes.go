@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/yann0917/toolbox/internal/provider/volcengine"
 	"github.com/yann0917/toolbox/internal/store"
+	"github.com/yann0917/toolbox/internal/task"
 )
 
 func (s *Server) Handler() http.Handler {
@@ -28,6 +30,7 @@ func (s *Server) Handler() http.Handler {
 		api.GET("/tasks/:id", s.getTask)
 		api.DELETE("/tasks/:id", s.deleteTask)
 		api.POST("/tasks/:id/cancel", s.cancelTask)
+		api.POST("/tasks/:id/rerun", s.rerunTask)
 		api.GET("/artifacts/:id/stream", s.streamArtifact)
 		api.GET("/artifacts/:id/download", s.downloadArtifact)
 		api.GET("/settings", s.getSettings)
@@ -103,7 +106,10 @@ func (s *Server) createTask(c *gin.Context) {
 		}
 		files = f
 	}
-	id, err := s.svc.Engine().Submit(req.Provider, req.Tool, req.Params, files)
+	id, err := s.svc.Engine().SubmitRef(req.Provider, req.Tool, req.Params, files, &task.InputRef{
+		FileIDs:       req.FileIDs,
+		ArtifactInput: req.ArtifactInput,
+	})
 	if err != nil {
 		failErr(c, err)
 		return
@@ -167,6 +173,66 @@ func (s *Server) cancelTask(c *gin.Context) {
 		return
 	}
 	ok(c, gin.H{"ok": true})
+}
+
+// rerunTask 克隆原任务重新提交：params 原样回传（引擎重新校验），输入引用按
+// Task.Input 重新解析——上传文件/产物可能已被清理，缺失时在提交前明确报错。
+func (s *Server) rerunTask(c *gin.Context) {
+	old, err := s.svc.DB().GetTask(c.Param("id"))
+	if err == store.ErrNotFound {
+		fail(c, CodeNotFound, "任务不存在")
+		return
+	} else if err != nil {
+		failErr(c, err)
+		return
+	}
+	if _, ok := s.svc.Registry().Get(old.Provider, old.Tool); !ok {
+		fail(c, CodeBadRequest, fmt.Sprintf("工具 %s.%s 不可用（凭证未配置或已下线），无法重跑", old.Provider, old.Tool))
+		return
+	}
+	var params map[string]any
+	if err := json.Unmarshal([]byte(old.Params), &params); err != nil {
+		fail(c, CodeBadRequest, "原任务参数已损坏，无法重跑")
+		return
+	}
+	if params == nil {
+		params = map[string]any{}
+	}
+	delete(params, "_out")
+	var ref task.InputRef
+	if old.Input != "" {
+		_ = json.Unmarshal([]byte(old.Input), &ref)
+	}
+	var files map[string]string
+	if ref.ArtifactInput != "" {
+		a, err := s.svc.DB().GetArtifact(ref.ArtifactInput)
+		if err == store.ErrNotFound {
+			fail(c, CodeNotFound, "原输入产物已被删除，无法重跑")
+			return
+		} else if err != nil {
+			failErr(c, err)
+			return
+		}
+		abs, err := s.artifactAbsPath(a.Path)
+		if err != nil {
+			fail(c, CodeNotFound, "原输入产物文件缺失，无法重跑")
+			return
+		}
+		files = map[string]string{"audio": abs}
+	} else if len(ref.FileIDs) > 0 {
+		f, err := fileIDsToFiles(s.svc.Config().DataDir, ref.FileIDs)
+		if err != nil {
+			fail(c, CodeNotFound, "原上传文件已不存在，无法重跑："+err.Error())
+			return
+		}
+		files = f
+	}
+	id, err := s.svc.Engine().SubmitRef(old.Provider, old.Tool, params, files, &ref)
+	if err != nil {
+		failErr(c, err)
+		return
+	}
+	ok(c, gin.H{"task_id": id})
 }
 
 // artifactAbsPath 将产物相对路径解析到 data 目录下，防止路径穿越。
