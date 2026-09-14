@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AudioLines,
@@ -20,9 +19,9 @@ import {
   Waves,
   X,
 } from "lucide-react";
-import { fetchJSON } from "../lib/api";
 import { useTheme, type ThemePref } from "../lib/theme";
 import { usePlayer } from "../lib/player";
+import { useWSStatus } from "../lib/ws";
 import PlayerBar from "./PlayerBar";
 import { IconButton } from "../ui";
 
@@ -48,20 +47,23 @@ const themeMeta = {
 };
 
 function HealthIndicator() {
-  const { data, isError } = useQuery({
-    queryKey: ["health"],
-    queryFn: () => fetchJSON<{ status: string }>("/api/health"),
-    refetchInterval: 30_000,
-    retry: false,
-  });
-  const ok = !isError && data?.status === "ok";
+  // 徽标跟随 WS 事件通道状态：WS 经 HTTP 升级建立，"open"即服务可达且实时通道可用，
+  // 比轮询 /api/health 更强也更相关（任务进度依赖这条通道）。服务端 ping/pong 保证
+  // 状态真实；断了 2 秒自动重连，无需人工处理。
+  const status = useWSStatus();
+  const meta = {
+    open: { label: "实时连接", cls: "text-meter", title: "事件通道已连接，任务进度实时推送" },
+    connecting: { label: "连接中", cls: "text-warn", title: "正在建立事件通道" },
+    closed: { label: "已断开", cls: "text-danger", title: "事件通道中断，将自动重连" },
+  }[status];
   return (
     <span
-      className={`hidden items-center gap-1.5 text-[11px] sm:inline-flex ${ok ? "text-meter" : "text-danger"}`}
-      title={ok ? "后端连接正常" : "后端不可达"}
+      className={`hidden items-center gap-1.5 text-[11px] sm:inline-flex ${meta.cls}`}
+      title={meta.title}
+      role="status"
     >
       <Activity size={13} strokeWidth={1.75} />
-      {ok ? "API 就绪" : "连接中断"}
+      {meta.label}
     </span>
   );
 }

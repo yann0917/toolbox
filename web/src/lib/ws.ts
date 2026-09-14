@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { create } from "zustand";
 
 export interface TaskEvent {
   type: "progress" | "done" | "error" | "canceled" | "task.snapshot";
@@ -11,35 +12,58 @@ export interface TaskEvent {
   detail?: { round_id?: number; speaker?: string; text?: string; rounds_done?: number; task_id?: string; poll?: number; status?: string; chunks?: number };
 }
 
+export type WSStatus = "connecting" | "open" | "closed";
+
+interface WSStore {
+  last: TaskEvent | null;
+  status: WSStatus;
+}
+
+// 全局单例连接（与播放器单实例同一模式）：所有页面与顶栏状态徽标共用一条 WS，
+// 切页不再断开重连。连接本身即存活信号——WS 经 HTTP 升级建立，连着就说明服务在，
+// 故顶栏不再轮询 /api/health；半开/僵死连接由服务端 ping/pong 读超时回收。
+const useWSStore = create<WSStore>(() => ({ last: null, status: "connecting" }));
+
+let started = false;
+function ensureConnection() {
+  if (started) return;
+  started = true;
+  const connect = () => {
+    useWSStore.setState({ status: "connecting" });
+    // 同源相对连接：dev 经 vite 代理（ws: true），https 部署自动用 wss
+    const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${wsProto}//${location.host}/api/ws`);
+    ws.onopen = () => useWSStore.setState({ status: "open" });
+    ws.onmessage = (e) => {
+      try {
+        useWSStore.setState({ last: JSON.parse(e.data) as TaskEvent });
+      } catch {
+        // 忽略坏帧
+      }
+    };
+    ws.onclose = () => {
+      useWSStore.setState({ status: "closed" });
+      setTimeout(connect, 2000);
+    };
+  };
+  connect();
+}
+
 export function useTaskEvents(): TaskEvent | null {
-  const [last, setLast] = useState<TaskEvent | null>(null);
+  ensureConnection();
+  const last = useWSStore((s) => s.last);
+  const [ev, setEv] = useState<TaskEvent | null>(null);
+  // 挂载时 store 里已有的事件属"历史"不下发，保持旧 hook"只收挂载后事件"的语义
+  //（消费方都以 ev.task_id === taskId 过滤，此为双保险）。
+  const baseline = useRef(last);
   useEffect(() => {
-    let disposed = false;
-    let ws: WebSocket | null = null;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const connect = () => {
-      if (disposed) return;
-      // 同源相对连接：dev 经 vite 代理（ws: true），https 部署自动用 wss
-      const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
-      const url = `${wsProto}//${location.host}/api/ws`;
-      ws = new WebSocket(url);
-      ws.onmessage = (e) => {
-        try {
-          setLast(JSON.parse(e.data) as TaskEvent);
-        } catch {
-          // 忽略坏帧
-        }
-      };
-      ws.onclose = () => {
-        if (!disposed) retry = setTimeout(connect, 2000);
-      };
-    };
-    connect();
-    return () => {
-      disposed = true;
-      if (retry) clearTimeout(retry);
-      ws?.close();
-    };
-  }, []);
-  return last;
+    if (last && last !== baseline.current) setEv(last);
+  }, [last]);
+  return ev;
+}
+
+/** 事件通道连接状态，顶栏徽标消费。 */
+export function useWSStatus(): WSStatus {
+  ensureConnection();
+  return useWSStore((s) => s.status);
 }
