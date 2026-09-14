@@ -12,13 +12,16 @@ import {
   Mic,
   RefreshCw,
   SlidersHorizontal,
+  Square,
   Upload,
   X,
 } from "lucide-react";
 import { apiBase, fetchJSON } from "../lib/api";
+import { formatTime } from "../lib/player";
 import type { Artifact, TaskDetail, TaskStatus } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
 import { useTranscriptSync } from "../lib/useTranscriptSync";
+import { recordingSupported, startRecording, type RecordingSession } from "../lib/recorder";
 import { TranscriptList } from "../components/TranscriptList";
 import { DictFill } from "../components/DictFill";
 import {
@@ -44,7 +47,7 @@ import {
 const ACCEPT = ".mp3,.wav,.ogg,.pcm";
 const ALLOWED_EXT = ["mp3", "wav", "ogg", "pcm"];
 
-type Mode = "upload" | "url";
+type Mode = "upload" | "url" | "recording";
 /** 识别版本：standard 本地文件/URL 全支持；idle/flash 仅公网 URL（闲时 24h 内完成 / 极速秒级同步） */
 type ASRVersion = "standard" | "idle" | "flash";
 
@@ -140,8 +143,15 @@ export default function ASRPage() {
   const [playSrc, setPlaySrc] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState("");
   const [fileError, setFileError] = useState("");
+  const [recState, setRecState] = useState<"idle" | "recording" | "processing">("idle");
+  const [recError, setRecError] = useState("");
+  const [recPreview, setRecPreview] = useState<string | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const blobRef = useRef<string | null>(null); // 上传回放的对象 URL（换任务时释放）
+  const recSessionRef = useRef<RecordingSession | null>(null);
+  const recStartRef = useRef(0);
+  const recLevelRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const { toast } = useToast();
   const ev = useTaskEvents();
@@ -181,16 +191,16 @@ export default function ASRPage() {
 
   const playTitle = artifactMode
     ? "人声轨（分离产物）"
-    : mode === "upload"
-      ? file?.name ?? "本地上传音频"
-      : "远程音频 URL";
+    : mode === "url"
+      ? "远程音频 URL"
+      : file?.name ?? (mode === "recording" ? "麦克风录音" : "本地上传音频");
   const playSub = artifactMode
     ? `产物 ${artifactId.slice(0, 8)}`
-    : mode === "upload"
-      ? file
+    : mode === "url"
+      ? url.trim() || undefined
+      : file
         ? formatSize(file.size)
-        : undefined
-      : url.trim() || undefined;
+        : undefined;
 
   /** 切换识别版本：闲时/极速仅收公网 URL，从本地上传自动切到 URL 模式。 */
   const changeVersion = (v: ASRVersion) => {
@@ -241,7 +251,7 @@ export default function ASRPage() {
       setSubmitError("");
       if (artifactMode) {
         setPlaySrc(`${apiBase}/api/artifacts/${artifactId}/stream`);
-      } else if (mode === "upload" && file) {
+      } else if (mode !== "url" && file) {
         if (blobRef.current) URL.revokeObjectURL(blobRef.current);
         blobRef.current = URL.createObjectURL(file);
         setPlaySrc(blobRef.current);
@@ -276,7 +286,71 @@ export default function ASRPage() {
     if (f) pickFile(f);
   };
 
-  const canSubmit = artifactMode || (mode === "upload" ? file != null : url.trim() !== "");
+  /* ---- 麦克风录音：采集完成后产出 16kHz WAV File，复用本地上传通道 ---- */
+  const startRec = async () => {
+    setRecError("");
+    try {
+      recSessionRef.current = await startRecording();
+      recStartRef.current = Date.now();
+      setElapsedMs(0);
+      setRecState("recording");
+    } catch (e) {
+      const err = e as DOMException;
+      setRecError(
+        err?.name === "NotAllowedError"
+          ? "麦克风权限被拒绝：请在浏览器地址栏允许麦克风访问后重试"
+          : `无法启动录音：${err?.message ?? e}`,
+      );
+    }
+  };
+
+  const stopRec = async () => {
+    const session = recSessionRef.current;
+    if (!session) return;
+    setRecState("processing");
+    try {
+      const file = await session.stop();
+      pickFile(file); // 产出即 .wav，必过扩展名校验
+      if (recPreview) URL.revokeObjectURL(recPreview);
+      setRecPreview(URL.createObjectURL(file));
+    } catch (e) {
+      setRecError(`录音处理失败：${(e as Error).message}`);
+    } finally {
+      recSessionRef.current = null;
+      setRecState("idle");
+    }
+  };
+
+  const discardRec = () => {
+    recSessionRef.current?.cancel();
+    recSessionRef.current = null;
+    if (recPreview) URL.revokeObjectURL(recPreview);
+    setRecPreview(null);
+    setFile(null);
+    setRecState("idle");
+  };
+
+  /* 录音计时与电平条：计时走 state（低频），电平走 rAF 直改 DOM（不走 React 渲染） */
+  useEffect(() => {
+    if (recState !== "recording") return;
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - recStartRef.current), 250);
+    return () => window.clearInterval(timer);
+  }, [recState]);
+
+  useEffect(() => {
+    if (recState !== "recording") return;
+    let raf = 0;
+    const tick = () => {
+      if (recLevelRef.current && recSessionRef.current) {
+        recLevelRef.current.style.width = `${Math.round(recSessionRef.current.level() * 100)}%`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [recState]);
+
+  const canSubmit = artifactMode || (mode === "url" ? url.trim() !== "" : file != null);
   const seekTrack = { title: playTitle, sub: playSub };
 
   return (
@@ -351,20 +425,23 @@ export default function ASRPage() {
                 <Tabs<Mode>
                   items={[
                     ...(version === "standard"
-                      ? [{ value: "upload" as const, label: "本地上传", icon: <Upload size={13} strokeWidth={1.75} /> }]
+                      ? [
+                          { value: "upload" as const, label: "本地上传", icon: <Upload size={13} strokeWidth={1.75} /> },
+                          { value: "recording" as const, label: "麦克风录音", icon: <Mic size={13} strokeWidth={1.75} /> },
+                        ]
                       : []),
                     { value: "url" as const, label: "音频 URL", icon: <Link2 size={13} strokeWidth={1.75} /> },
                   ]}
                   value={mode}
                   onChange={(m) => {
+                    if (mode === "recording" && m !== "recording" && recState === "recording") discardRec();
                     setMode(m);
                     setFileError("");
                   }}
                 />
 
                 {mode === "upload" ? (
-                  <div className="space-y-2">
-                    <div
+                  <div className="space-y-2">                    <div
                       role="button"
                       tabIndex={0}
                       aria-label="选择或拖入音频文件"
@@ -433,6 +510,63 @@ export default function ASRPage() {
                         <AlertTriangle size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />
                         {fileError}
                       </p>
+                    )}
+                  </div>
+                ) : mode === "recording" ? (
+                  <div className="space-y-3">
+                    {!recordingSupported() ? (
+                      <p className="text-[11px] text-muted">当前环境不支持录音（需要 https 或 localhost）</p>
+                    ) : (
+                      <>
+                        <div className="flex flex-col items-center gap-2 rounded-[var(--radius-md)] border border-dashed border-line-strong bg-raise-2/40 px-4 py-6">
+                          <button
+                            type="button"
+                            aria-label={recState === "recording" ? "停止录音" : "开始录音"}
+                            disabled={recState === "processing"}
+                            onClick={() => void (recState === "recording" ? stopRec() : startRec())}
+                            className={`flex size-12 cursor-pointer items-center justify-center rounded-full border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
+                              recState === "recording"
+                                ? "border-danger bg-danger/10 text-danger"
+                                : "border-line-strong bg-raise-2 text-accent hover:border-accent"
+                            }`}
+                          >
+                            {recState === "recording" ? (
+                              <Square size={18} strokeWidth={1.75} fill="currentColor" />
+                            ) : (
+                              <Mic size={18} strokeWidth={1.75} />
+                            )}
+                          </button>
+                          <span className="font-mono text-sm tabular-nums text-fg-2">
+                            {formatTime(elapsedMs / 1000)}
+                          </span>
+                          {recState === "recording" && (
+                            <div className="h-1 w-40 overflow-hidden rounded-full bg-line">
+                              <div ref={recLevelRef} className="h-full rounded-full bg-accent" style={{ width: "0%" }} />
+                            </div>
+                          )}
+                          <p className="text-[11px] text-muted">
+                            {recState === "recording"
+                              ? "正在录音，点击方块停止"
+                              : recState === "processing"
+                                ? "正在转码…"
+                                : "点击麦克风开始录音，产出 16kHz WAV 走标准版识别"}
+                          </p>
+                        </div>
+                        {recError && (
+                          <p className="flex items-start gap-1.5 text-[11px] text-danger">
+                            <AlertTriangle size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+                            {recError}
+                          </p>
+                        )}
+                        {recPreview && (
+                          <div className="space-y-2">
+                            <WavePlayer src={recPreview} title="录音预览" />
+                            <Button variant="ghost" size="sm" icon={<X size={13} strokeWidth={1.75} />} onClick={discardRec}>
+                              丢弃录音
+                            </Button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 ) : (
@@ -506,7 +640,7 @@ export default function ASRPage() {
               </Button>
               {!canSubmit && (
                 <p className="mt-2 text-[11px] text-muted">
-                  {mode === "upload" ? "请先选择音频文件" : "请先填写音频 URL"}
+                  {mode === "url" ? "请先填写音频 URL" : mode === "recording" ? "请先完成录音" : "请先选择音频文件"}
                 </p>
               )}
               {submitError && (
