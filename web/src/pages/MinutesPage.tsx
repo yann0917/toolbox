@@ -19,6 +19,7 @@ import { useTranscriptSync } from "../lib/useTranscriptSync";
 import { resolvePlaySrc } from "../lib/playback";
 import { TranscriptList } from "../components/TranscriptList";
 import { ArtifactRow } from "../components/ArtifactRow";
+import { DictFill } from "../components/DictFill";
 import {
   MINUTES_TEMPLATES,
   defaultMinutesTemplate,
@@ -319,17 +320,20 @@ export default function MinutesPage() {
               </Field>
             </div>
 
-            <Field label="热词" hint="逗号分隔，提升专有名词准确率">
-              {({ id, ...rest }) => (
-                <Input
-                  id={id}
-                  value={hotwords}
-                  onChange={(e) => setHotwords(e.target.value)}
-                  placeholder="如：火山引擎, 大模型"
-                  {...rest}
-                />
-              )}
-            </Field>
+            <div className="space-y-2">
+              <Field label="热词" hint="逗号分隔，提升专有名词准确率">
+                {({ id, ...rest }) => (
+                  <Input
+                    id={id}
+                    value={hotwords}
+                    onChange={(e) => setHotwords(e.target.value)}
+                    placeholder="如：火山引擎, 大模型"
+                    {...rest}
+                  />
+                )}
+              </Field>
+              <DictFill field="hotwords" onFill={setHotwords} />
+            </div>
 
             <div className="border-t border-line pt-3">
               <Button

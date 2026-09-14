@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/yann0917/toolbox/internal/config"
 	"github.com/yann0917/toolbox/internal/provider/volcengine"
 	"github.com/yann0917/toolbox/internal/store"
 	"github.com/yann0917/toolbox/internal/task"
@@ -37,6 +38,7 @@ func (s *Server) Handler() http.Handler {
 		api.PUT("/settings", s.putSettings)
 		api.POST("/settings/test-connection", s.testConnection)
 		api.GET("/voices", s.listVoices)
+		api.GET("/dicts", s.listDicts)
 		api.GET("/ws", func(c *gin.Context) { s.hub.serveWS(c.Writer, c.Request, s.snapshotJSON) })
 	}
 	return r
@@ -334,4 +336,19 @@ func (s *Server) testConnection(c *gin.Context) {
 
 func (s *Server) listVoices(c *gin.Context) {
 	ok(c, gin.H{"voices": volcengine.Voices()})
+}
+
+// listDicts 命名词典清单（config.yaml dicts 段）：供工具页「从词典填入」。
+// 热词/术语非敏感，原样返回；管理走 CLI（toolbox dict add/rm）。
+func (s *Server) listDicts(c *gin.Context) {
+	dicts, err := config.Dicts()
+	if err != nil {
+		failErr(c, err)
+		return
+	}
+	out := make([]gin.H, 0, len(dicts))
+	for _, d := range dicts {
+		out = append(out, gin.H{"name": d.Name, "hotwords": d.Hotwords, "terms": d.Terms})
+	}
+	ok(c, out)
 }

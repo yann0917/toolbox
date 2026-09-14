@@ -37,6 +37,89 @@ type MediaKitConfig struct{ APIKey string }
 
 type KV struct{ Key, Value string }
 
+// Dict 命名词典：热词（ASR/妙记）与术语（翻译）的可复用资产，落 config.yaml 的 dicts 段。
+type Dict struct {
+	Name     string `json:"name"`
+	Hotwords string `json:"hotwords,omitempty"`
+	Terms    string `json:"terms,omitempty"`
+}
+
+type DictEntry struct {
+	Hotwords string `mapstructure:"hotwords"`
+	Terms    string `mapstructure:"terms"`
+}
+
+// Dicts 读取全部命名词典，按名称排序；无 dicts 段时返回空切片。
+func Dicts() ([]Dict, error) {
+	entries, err := readDicts()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Dict, 0, len(entries))
+	for name, e := range entries {
+		out = append(out, Dict{Name: name, Hotwords: e.Hotwords, Terms: e.Terms})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// readDicts 注意：UnmarshalKey 把 key 处的「值」解码进目标，因此目标直接是
+// map[string]DictEntry，不能再包一层 struct（字段对不上会静默得到空值）。
+func readDicts() (map[string]DictEntry, error) {
+	v := newFileViper()
+	if err := v.ReadInConfig(); err != nil {
+		if _, statErr := os.Stat(Path()); statErr == nil {
+			return nil, fmt.Errorf("读取配置失败: %w", err)
+		}
+	}
+	entries := map[string]DictEntry{}
+	if err := v.UnmarshalKey("dicts", &entries); err != nil {
+		return nil, fmt.Errorf("解析词典失败: %w", err)
+	}
+	return entries, nil
+}
+
+// SetDict 以整段替换的方式 upsert 一个词典（名称含 `.` 时 dotted Set 会拆错层级）。
+func SetDict(name string, e DictEntry) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("词典名称不能为空")
+	}
+	entries, err := readDicts()
+	if err != nil {
+		return err
+	}
+	entries[name] = e
+	return writeDicts(entries)
+}
+
+// RemoveDict 删除词典；不存在时报错。
+func RemoveDict(name string) error {
+	entries, err := readDicts()
+	if err != nil {
+		return err
+	}
+	if _, ok := entries[name]; !ok {
+		return fmt.Errorf("词典不存在: %s", name)
+	}
+	delete(entries, name)
+	return writeDicts(entries)
+}
+
+func writeDicts(m map[string]DictEntry) error {
+	if err := os.MkdirAll(filepath.Dir(Path()), 0o700); err != nil {
+		return err
+	}
+	v := viper.New()
+	v.SetConfigFile(Path())
+	v.SetConfigType("yaml")
+	_ = v.ReadInConfig()
+	v.Set("dicts", m)
+	if err := v.WriteConfigAs(Path()); err != nil {
+		return err
+	}
+	return os.Chmod(Path(), 0o600)
+}
+
 func homeDir() string {
 	h, err := os.UserHomeDir()
 	if err != nil {

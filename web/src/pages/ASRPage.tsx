@@ -20,6 +20,7 @@ import type { Artifact, TaskDetail, TaskStatus } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
 import { useTranscriptSync } from "../lib/useTranscriptSync";
 import { TranscriptList } from "../components/TranscriptList";
+import { DictFill } from "../components/DictFill";
 import {
   Button,
   Card,
@@ -477,17 +478,20 @@ export default function ASRPage() {
                 </Select>
               )}
             </Field>
-            <Field label="热词" aside="可选" hint="逗号分隔，用于提升专有名词识别率">
-              {({ id, ...rest }) => (
-                <Input
-                  id={id}
-                  value={hotwords}
-                  onChange={(e) => setHotwords(e.target.value)}
-                  placeholder="火山引擎,语音合成"
-                  {...rest}
-                />
-              )}
-            </Field>
+            <div className="space-y-2">
+              <Field label="热词" aside="可选" hint="逗号分隔，用于提升专有名词识别率">
+                {({ id, ...rest }) => (
+                  <Input
+                    id={id}
+                    value={hotwords}
+                    onChange={(e) => setHotwords(e.target.value)}
+                    placeholder="火山引擎,语音合成"
+                    {...rest}
+                  />
+                )}
+              </Field>
+              <DictFill field="hotwords" onFill={setHotwords} />
+            </div>
 
             <div className="border-t border-line pt-3">
               <Button

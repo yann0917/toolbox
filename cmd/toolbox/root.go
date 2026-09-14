@@ -17,6 +17,7 @@ func newRootCmd() *cobra.Command {
 	}
 	root.AddCommand(
 		newConfigCmd(),
+		newDictCmd(),
 		newVoicesCmd(),
 		newTTSCommand(),
 		newTTSLongCommand(),

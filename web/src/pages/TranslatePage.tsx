@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchJSON } from "../lib/api";
+import { DictFill } from "../components/DictFill";
 import type { TaskDetail, TaskStatus } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
 import { ArtifactRow } from "../components/ArtifactRow";
@@ -316,21 +317,24 @@ export default function TranslatePage() {
               </button>
               {termsOpen && (
                 <div className="space-y-4 pt-3">
-                  <Field
-                    label="直传术语"
-                    hint="每行一条「原词=译词」，也可用逗号分隔；直传术语优先于术语表。"
-                  >
-                    {({ id, ...rest }) => (
-                      <Textarea
-                        id={id}
-                        value={terms}
-                        onChange={(e) => setTerms(e.target.value)}
-                        rows={4}
-                        placeholder={"Volcengine=火山引擎\nBigModel=大模型"}
-                        {...rest}
-                      />
-                    )}
-                  </Field>
+                  <div className="space-y-2">
+                    <Field
+                      label="直传术语"
+                      hint="每行一条「原词=译词」，也可用逗号分隔；直传术语优先于术语表。"
+                    >
+                      {({ id, ...rest }) => (
+                        <Textarea
+                          id={id}
+                          value={terms}
+                          onChange={(e) => setTerms(e.target.value)}
+                          rows={4}
+                          placeholder={"Volcengine=火山引擎\nBigModel=大模型"}
+                          {...rest}
+                        />
+                      )}
+                    </Field>
+                    <DictFill field="terms" onFill={setTerms} />
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Field label="术语表 ID">
                       {({ id, ...rest }) => (
