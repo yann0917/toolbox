@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, AudioLines, Clock, Languages, Mic, NotebookPen, Podcast, Waves } from "lucide-react";
+import { ArrowUpRight, AudioLines, Clock, Languages, ListOrdered, Mic, NotebookPen, Podcast, Waves, X } from "lucide-react";
 import { fetchJSON } from "../lib/api";
-import type { Task } from "../lib/types";
-import { Card, CardHeader, EmptyState, PageHeader, Skeleton, StatusBadge } from "../ui";
+import type { Task, TaskStatus } from "../lib/types";
+import { useTaskEvents } from "../lib/ws";
+import { Button, Card, CardBody, CardHeader, EmptyState, IconButton, PageHeader, Skeleton, StatusBadge, Tabs, useToast } from "../ui";
 
 const tools = [
   { to: "/tts", name: "语音合成", desc: "同步/流式/长文本三通道，按费用选", icon: AudioLines, tool: "tts" },
@@ -13,6 +15,159 @@ const tools = [
   { to: "/translate", name: "机器翻译", desc: "32 语种互译，术语定制", icon: Languages, tool: "translate" },
   { to: "/minutes", name: "语音妙记", desc: "音视频转纪要：总结/待办/章节", icon: NotebookPen, tool: "minutes" },
 ];
+
+/** 批量识别单批上限：防止误贴超大列表；引擎侧并发 ×2 自动排队 */
+const MAX_BATCH = 20;
+
+type AsrVersion = "standard" | "idle" | "flash";
+
+interface BatchRow {
+  task_id: string;
+  url: string;
+  status: TaskStatus;
+  progress: number;
+  note: string;
+  error?: string;
+}
+
+function shortUrl(u: string): string {
+  return u.replace(/^https?:\/\//, "").slice(0, 60);
+}
+
+/** 批量识别：多行 URL 逐行提交为独立任务，本批次行内实时进度（WS 驱动）与逐行取消。 */
+function BatchAsrCard() {
+  const [text, setText] = useState("");
+  const [version, setVersion] = useState<AsrVersion>("flash");
+  const [rows, setRows] = useState<BatchRow[]>([]);
+  const [running, setRunning] = useState(false);
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const ev = useTaskEvents();
+
+  /* WS 事件驱动行状态：progress 更新进度，终态落 StatusBadge */
+  useEffect(() => {
+    if (!ev) return;
+    setRows((prev) => {
+      const idx = prev.findIndex((r) => r.task_id === ev.task_id);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      const row = { ...next[idx] };
+      if (ev.type === "progress") {
+        row.status = "running";
+        row.progress = ev.progress ?? row.progress;
+        row.note = ev.note ?? "";
+      } else if (ev.type === "done") {
+        row.status = "succeeded";
+        row.progress = 100;
+        row.note = "完成";
+      } else if (ev.type === "error") {
+        row.status = "failed";
+        row.note = "";
+        row.error = ev.error || "任务失败";
+      } else if (ev.type === "canceled") {
+        row.status = "canceled";
+        row.note = "已取消";
+      }
+      next[idx] = row;
+      return next;
+    });
+  }, [ev]);
+
+  const urls = [...new Set(text.split(/\n/).map((s) => s.trim()).filter(Boolean))];
+  const overLimit = urls.length > MAX_BATCH;
+  const badLines = urls.filter((u) => !/^https?:\/\//i.test(u));
+  const canSubmit = urls.length > 0 && !overLimit && badLines.length === 0 && !running;
+
+  const submit = async () => {
+    setRunning(true);
+    // 逐行提交：单行失败不阻断后续（错误经 toast 提示），排队交给引擎并发槽
+    for (const url of urls) {
+      try {
+        const d = await fetchJSON<{ task_id: string }>("/api/tasks", {
+          method: "POST",
+          body: JSON.stringify({ provider: "volcengine", tool: "asr", params: { url, version, srt: true } }),
+        });
+        setRows((prev) => [...prev, { task_id: d.task_id, url, status: "pending", progress: 0, note: "已提交" }]);
+      } catch (e) {
+        toast({ tone: "error", title: "提交失败", description: `${shortUrl(url)}：${(e as Error).message}` });
+      }
+    }
+    setRunning(false);
+    setText("");
+    void qc.invalidateQueries({ queryKey: ["tasks"] });
+  };
+
+  const cancel = async (id: string) => {
+    try {
+      await fetchJSON(`/api/tasks/${id}/cancel`, { method: "POST" });
+    } catch (e) {
+      toast({ tone: "error", title: "取消失败", description: (e as Error).message });
+    }
+  };
+
+  return (
+    <Card className="mt-6">
+      <CardHeader
+        title="批量识别"
+        icon={<ListOrdered size={15} strokeWidth={1.75} />}
+        aside={<span className="micro">引擎并发 ×2 自动排队</span>}
+      />
+      <CardBody className="space-y-3">
+        <Tabs<AsrVersion>
+          items={[
+            { value: "flash", label: "极速版" },
+            { value: "idle", label: "闲时版" },
+            { value: "standard", label: "标准版" },
+          ]}
+          value={version}
+          onChange={setVersion}
+        />
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={4}
+          placeholder={"每行一个音频 URL，最多 20 行\nhttps://example.com/a.mp3\nhttps://example.com/b.mp3"}
+          className="w-full rounded-[var(--radius-sm)] border border-line bg-raise-2 px-3 py-2 font-mono text-xs text-fg placeholder:text-muted focus:border-accent focus:outline-none"
+          aria-label="批量识别 URL 列表"
+        />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] text-muted">
+            {overLimit
+              ? `超出上限：最多 ${MAX_BATCH} 行`
+              : badLines.length > 0
+                ? `${badLines.length} 行不是 http(s) 地址`
+                : `已录入 ${urls.length} 行${urls.length > 0 ? `，识别版本 ${version === "flash" ? "极速" : version === "idle" ? "闲时" : "标准"}` : ""}`}
+          </p>
+          <Button variant="primary" size="sm" loading={running} disabled={!canSubmit} onClick={() => void submit()}>
+            {running ? "提交中…" : `批量提交${urls.length > 0 ? ` ${urls.length} 个` : ""}`}
+          </Button>
+        </div>
+
+        {rows.length > 0 && (
+          <ul className="divide-y divide-line rounded-[var(--radius-sm)] border border-line">
+            {rows.map((r, i) => (
+              <li key={r.task_id} className="flex items-center gap-3 px-3 py-2">
+                <span className="w-5 shrink-0 font-mono text-[11px] tabular-nums text-muted">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-2" title={r.url}>
+                  {shortUrl(r.url)}
+                </span>
+                <StatusBadge status={r.status} />
+                <span className="w-36 shrink-0 truncate text-right text-[11px] text-muted">
+                  {r.error || r.note || "—"}
+                </span>
+                {(r.status === "pending" || r.status === "running") && (
+                  <IconButton label="取消该任务" size="sm" variant="ghost" onClick={() => void cancel(r.task_id)}>
+                    <X size={13} strokeWidth={1.75} />
+                  </IconButton>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
 
 function StatTile({ label, value, hint, loading }: { label: string; value: string; hint?: string; loading?: boolean }) {
   return (
@@ -140,6 +295,8 @@ export default function WorkbenchPage() {
           );
         })}
       </div>
+
+      <BatchAsrCard />
 
       <Card className="mt-6">
         <CardHeader
