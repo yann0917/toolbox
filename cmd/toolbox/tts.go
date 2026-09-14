@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -79,7 +78,7 @@ func runToolSync(c *cobra.Command, providerName, toolName string, params map[str
 	if outPath != "" {
 		params["_out"] = outPath // provider 侧支持 _out 参数指定产物绝对路径
 	}
-	task, arts, err := svc.Engine().SubmitSync(c.Context(), providerName, toolName, params, files)
+	result, err := runToolCore(c.Context(), svc, providerName, toolName, params, files)
 	// 进度行以 \r 原地刷新且无结尾换行，终态输出前补一个换行分开两行（--json 模式无进度输出，跳过）。
 	if !jsonOut {
 		eprintf("\n")
@@ -88,25 +87,10 @@ func runToolSync(c *cobra.Command, providerName, toolName string, params map[str
 		eprintf("错误: %v\n", err)
 		os.Exit(exitCodeFor(err))
 	}
-	result := jsonResult{
-		TaskID: task.ID, Provider: task.Provider, Tool: task.Tool,
-		Status: string(task.Status), CostMS: task.CostMS,
-		Artifacts: []artifactOut{},
-	}
-	for _, a := range arts {
-		result.Artifacts = append(result.Artifacts, artifactOut{
-			Kind: a.Kind, Path: absArtifactPath(cfg.DataDir, a.Path),
-			Format: a.Format, Size: a.Size, DurationMS: a.DurationMS,
-		})
-	}
-	// summary 从任务落库的 JSON 恢复（引擎在任务成功时序列化 TaskOutput.Summary）
-	if task.Summary != "" {
-		_ = json.Unmarshal([]byte(task.Summary), &result.Summary)
-	}
 	if jsonOut {
 		printJSON(result)
 	} else {
-		eprintf("完成，耗时 %dms\n", task.CostMS)
+		eprintf("完成，耗时 %dms\n", result.CostMS)
 		for _, a := range result.Artifacts {
 			fmt.Printf("%s: %s\n", a.Kind, a.Path)
 		}

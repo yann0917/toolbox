@@ -22,7 +22,7 @@ description: 多媒体 AI 工具箱 CLI（toolbox），通过火山引擎提供�
 
 ## 八个能力的最小用法
 
-> 当前构建提供 `tts` / `tts-long` / `tts-stream` / `asr` / `podcast` / `separate` / `translate` / `minutes` / `config` / `voices` / `serve` 命令；`run` 随后续里程碑交付，调用前先 `toolbox --help` 确认可用。
+> 当前构建提供 `tts` / `tts-long` / `tts-stream` / `asr` / `podcast` / `separate` / `translate` / `minutes` / `config` / `voices` / `serve` / `mcp` 命令；调用前先 `toolbox --help` 确认可用。若宿主是 MCP 客户端（Claude Code 等），也可直接接入 `toolbox mcp`（见仓库 docs/mcp.md），工具输出与 `--json` 同一契约。
 
 ```bash
 # 文字转语音（返回 mp3 路径）

@@ -16,7 +16,7 @@
 - **双形态**：`toolbox tts/asr/podcast/separate/translate/minutes` 命令行直用（脚本/agent 友好，`--json` 机器可读输出）；`toolbox serve` 启动 Web 控制台。
 - **单二进制**：前端产物 go:embed 内嵌，goroutine 任务池 + SQLite 状态，零外部依赖部署；纯 Go sqlite 驱动，可交叉编译（`make dist`）。
 - **可扩展**：Provider 抽象层，新平台/新工具以「实现接口 + 注册」接入，前端表单与 CLI 由参数 schema 驱动。
-- **Agent 可调用**：随仓库交付 [skills/toolbox](skills/toolbox/SKILL.md)，其他 agent 可直接通过 CLI 调用全部能力。
+- **Agent 可调用**：随仓库交付 [skills/toolbox](skills/toolbox/SKILL.md)，其他 agent 可直接通过 CLI 调用全部能力；`toolbox mcp` 提供 stdio MCP server（9 个工具，见 [docs/mcp.md](docs/mcp.md)），Claude Code 等 MCP 客户端可直连。
 
 ## Web 控制台
 
@@ -116,6 +116,8 @@ Go（gin / gorm / cobra / resty / viper / gorilla/websocket）· React 19 + Type
 - [设计文档](docs/superpowers/specs/2026-09-12-toolbox-design.md)：架构、接口要点、契约
 - [UI 设计规范](design-system/toolbox/MASTER.md)：色彩/字体/间距/组件规格（Web 界面实现依据）
 - [agent skill](skills/toolbox/SKILL.md)：CLI 完整参考（[references/cli.md](skills/toolbox/references/cli.md)），供 agent 与脚本调用
+- [JSON 输出契约](docs/json-contract.md)：`--json` / MCP 输出的字段与稳定性承诺
+- [MCP Server](docs/mcp.md)：`toolbox mcp` 接入配置与工具清单
 
 ## License
 

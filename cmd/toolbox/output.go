@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/yann0917/toolbox/internal/provider/volcengine"
+	"github.com/yann0917/toolbox/internal/service"
 )
 
 type artifactOut struct {
@@ -34,6 +36,32 @@ func printJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(v)
+}
+
+// runToolCore 同步执行工具并组装 --json 契约结果（CLI 与 MCP server 共享的执行核心）。
+// 契约见 docs/json-contract.md：artifacts[].path 恒为绝对路径；summary 为任务摘要 JSON。
+// 调用方须已 StartEngine；_out 重定位由调用方在 params 中自行设置。
+func runToolCore(ctx context.Context, svc *service.Service, providerName, toolName string, params map[string]any, files map[string]string) (jsonResult, error) {
+	task, arts, err := svc.Engine().SubmitSync(ctx, providerName, toolName, params, files)
+	if err != nil {
+		return jsonResult{}, err
+	}
+	result := jsonResult{
+		TaskID: task.ID, Provider: task.Provider, Tool: task.Tool,
+		Status: string(task.Status), CostMS: task.CostMS,
+		Artifacts: []artifactOut{},
+	}
+	for _, a := range arts {
+		result.Artifacts = append(result.Artifacts, artifactOut{
+			Kind: a.Kind, Path: absArtifactPath(svc.Config().DataDir, a.Path),
+			Format: a.Format, Size: a.Size, DurationMS: a.DurationMS,
+		})
+	}
+	// summary 从任务落库的 JSON 恢复（引擎在任务成功时序列化 TaskOutput.Summary）
+	if task.Summary != "" {
+		_ = json.Unmarshal([]byte(task.Summary), &result.Summary)
+	}
+	return result, nil
 }
 
 func eprintf(format string, a ...any) {
