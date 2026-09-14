@@ -11,6 +11,7 @@ import PodcastPage from "./pages/PodcastPage";
 import SeparatePage from "./pages/SeparatePage";
 import TranslatePage from "./pages/TranslatePage";
 import MinutesPage from "./pages/MinutesPage";
+import SubtitlesPage from "./pages/SubtitlesPage";
 import AboutPage from "./pages/AboutPage";
 import HistoryPage from "./pages/HistoryPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -44,6 +45,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="/separate" element={<SeparatePage />} />
               <Route path="/translate" element={<TranslatePage />} />
               <Route path="/minutes" element={<MinutesPage />} />
+              <Route path="/subtitles" element={<SubtitlesPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/settings" element={<SettingsPage />} />
