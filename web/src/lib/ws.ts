@@ -4,6 +4,8 @@ import { create } from "zustand";
 export interface TaskEvent {
   type: "progress" | "done" | "error" | "canceled" | "task.snapshot";
   task_id?: string;
+  provider?: string;
+  tool?: string;
   progress?: number;
   note?: string;
   error?: string;
@@ -24,6 +26,17 @@ interface WSStore {
 // 故顶栏不再轮询 /api/health；半开/僵死连接由服务端 ping/pong 读超时回收。
 const useWSStore = create<WSStore>(() => ({ last: null, status: "connecting" }));
 
+// 事件逐条回调订阅：store.last 只保留最新一条，快速连发的两条事件会互相覆盖
+//（页面取 last 无碍，全局通知类消费方一条都不能丢），故提供逐条总线。
+const eventSubs = new Set<(ev: TaskEvent) => void>();
+
+/** 订阅每一条任务事件，返回退订函数。首次订阅会顺带建立 WS 连接。 */
+export function onTaskEvent(cb: (ev: TaskEvent) => void): () => void {
+  ensureConnection();
+  eventSubs.add(cb);
+  return () => void eventSubs.delete(cb);
+}
+
 let started = false;
 function ensureConnection() {
   if (started) return;
@@ -36,7 +49,9 @@ function ensureConnection() {
     ws.onopen = () => useWSStore.setState({ status: "open" });
     ws.onmessage = (e) => {
       try {
-        useWSStore.setState({ last: JSON.parse(e.data) as TaskEvent });
+        const ev = JSON.parse(e.data) as TaskEvent;
+        useWSStore.setState({ last: ev });
+        eventSubs.forEach((cb) => cb(ev));
       } catch {
         // 忽略坏帧
       }

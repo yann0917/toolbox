@@ -15,17 +15,7 @@ import {
   StatusBadge,
   useToast,
 } from "../ui";
-
-const toolName: Record<string, string> = {
-  tts: "语音合成",
-  tts_long: "长文本合成",
-  tts_stream: "流式合成",
-  asr: "语音识别",
-  podcast: "播客工坊",
-  separate: "人声分离",
-  translate: "机器翻译",
-  minutes: "语音妙记",
-};
+import { toolLabel } from "../lib/toolNames";
 
 const filters = [
   { value: "", label: "全部" },
@@ -124,7 +114,7 @@ export default function HistoryPage() {
                     onClick={() => setSelected(selected === t.id ? null : t.id)}
                     className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
                   >
-                    <span className="w-20 shrink-0 text-fg-2">{toolName[t.tool] ?? t.tool}</span>
+                    <span className="w-20 shrink-0 text-fg-2">{toolLabel(t.tool)}</span>
                     <StatusBadge status={t.status} />
                     <span className="min-w-0 flex-1 truncate text-xs text-muted">
                       {t.progress_note || t.error || "—"}
@@ -168,7 +158,7 @@ export default function HistoryPage() {
         open={Boolean(pendingDelete)}
         title="删除任务"
         description={`将删除「${
-          pendingDelete ? toolName[pendingDelete.tool] ?? pendingDelete.tool : ""
+          pendingDelete ? toolLabel(pendingDelete.tool) : ""
         }」任务记录及其产物文件，且不可恢复。`}
         confirmLabel="删除"
         loading={del.isPending}

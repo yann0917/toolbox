@@ -16,8 +16,10 @@ import (
 )
 
 type Event struct {
-	Type      string              `json:"type"` // progress|done|error|canceled
+	Type      string              `json:"type"` // progress|done|error|canceled|task.snapshot
 	TaskID    string              `json:"task_id"`
+	Provider  string              `json:"provider,omitempty"` // 归属工具，前端全局通知/展示用
+	Tool      string              `json:"tool,omitempty"`
 	Progress  int                 `json:"progress"`
 	Note      string              `json:"note"`
 	Error     string              `json:"error"`
@@ -105,7 +107,7 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 
 	t.Status = store.StatusRunning
 	_ = e.db.UpdateTask(t)
-	e.emit(Event{Type: "progress", TaskID: t.ID, Progress: 0, Note: "任务开始"})
+	e.emit(Event{Type: "progress", TaskID: t.ID, Provider: t.Provider, Tool: t.Tool, Progress: 0, Note: "任务开始"})
 
 	e.sem <- struct{}{}
 	defer func() { <-e.sem }()
@@ -115,7 +117,7 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 		t.ProgressNote = note
 		_ = e.db.UpdateTask(t)
 		// detail 可能为 nil（多数工具不传），omitempty 保证 JSON 输出向后兼容。
-		e.emit(Event{Type: "progress", TaskID: t.ID, Progress: progress, Note: note, Detail: detail})
+		e.emit(Event{Type: "progress", TaskID: t.ID, Provider: t.Provider, Tool: t.Tool, Progress: progress, Note: note, Detail: detail})
 	}
 
 	out, runErr := tool.Run(ctx, provider.TaskInput{Params: params, Files: files}, report)
@@ -134,7 +136,7 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 			t.Error = fmt.Sprintf("保存产物失败: %v", err)
 			t.CostMS = time.Since(start).Milliseconds()
 			_ = e.db.UpdateTask(t)
-			e.emit(Event{Type: "error", TaskID: t.ID, Error: t.Error})
+			e.emit(Event{Type: "error", TaskID: t.ID, Provider: t.Provider, Tool: t.Tool, Error: t.Error})
 			return t, saved, fmt.Errorf("保存产物失败: %w", err)
 		}
 		saved = append(saved, sa)
@@ -149,14 +151,14 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 			raw, _ := json.Marshal(out.Summary)
 			t.Summary = string(raw)
 		}
-		ev = Event{Type: "done", TaskID: t.ID, Progress: 100, Artifacts: out.Artifacts}
+		ev = Event{Type: "done", TaskID: t.ID, Provider: t.Provider, Tool: t.Tool, Progress: 100, Artifacts: out.Artifacts}
 	case errors.Is(runErr, context.Canceled):
 		t.Status = store.StatusCanceled
-		ev = Event{Type: "canceled", TaskID: t.ID}
+		ev = Event{Type: "canceled", TaskID: t.ID, Provider: t.Provider, Tool: t.Tool}
 	default:
 		t.Status = store.StatusFailed
 		t.Error = runErr.Error()
-		ev = Event{Type: "error", TaskID: t.ID, Error: runErr.Error()}
+		ev = Event{Type: "error", TaskID: t.ID, Provider: t.Provider, Tool: t.Tool, Error: runErr.Error()}
 	}
 	// 先落库终态，再发终态事件：订阅方收到事件时 DB 状态已就绪。
 	// 任务开始处的「先 UpdateTask 再 emit」与本处顺序保持一致。

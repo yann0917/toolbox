@@ -23,6 +23,7 @@ import { useTheme, type ThemePref } from "../lib/theme";
 import { usePlayer } from "../lib/player";
 import { useWSStatus } from "../lib/ws";
 import PlayerBar from "./PlayerBar";
+import TaskToasts from "./TaskToasts";
 import { IconButton } from "../ui";
 
 const nav = [
@@ -174,6 +175,7 @@ export default function Layout() {
       </div>
 
       <PlayerBar />
+      <TaskToasts />
     </div>
   );
 }
