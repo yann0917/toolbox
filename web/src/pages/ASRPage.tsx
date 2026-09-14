@@ -48,12 +48,12 @@ const ACCEPT = ".mp3,.wav,.ogg,.pcm";
 const ALLOWED_EXT = ["mp3", "wav", "ogg", "pcm"];
 
 type Mode = "upload" | "url" | "recording";
-/** 识别版本：standard 本地文件/URL 全支持；idle/flash 仅公网 URL（闲时 24h 内完成 / 极速秒级同步） */
-type ASRVersion = "standard" | "idle" | "flash";
+/** 识别版本：sentence 一句话识别（本地文件，单向流式大模型同步）；standard/idle/flash 录音文件识别（仅 URL） */
+type ASRVersion = "sentence" | "standard" | "idle" | "flash";
 
 /** URL 输入提示随版本变化（闲时/极速版 format 由 URL 扩展名推断，与后端 audioFormatFromURL 一致） */
-const URL_HINT: Record<ASRVersion, string> = {
-  standard: "需公网可访问的 mp3 / wav / ogg / pcm 音频地址",
+const URL_HINT: Record<"standard" | "idle" | "flash", string> = {
+  standard: "需公网可访问的 mp3 / wav / ogg / pcm 音频地址（异步转写）",
   idle: "公网音频地址（wav/mp3/ogg/spx/amr/aac/m4a），最大 512MB / 5 小时",
   flash: "公网音频地址（wav/mp3/ogg/spx/amr/aac/m4a），最大 100MB / 2 小时",
 };
@@ -130,7 +130,7 @@ export default function ASRPage() {
   const artifactMode = artifactId !== "";
 
   const [mode, setMode] = useState<Mode>("upload");
-  const [version, setVersion] = useState<ASRVersion>("standard");
+  const [version, setVersion] = useState<ASRVersion>("sentence");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [url, setUrl] = useState("");
@@ -202,12 +202,15 @@ export default function ASRPage() {
         ? formatSize(file.size)
         : undefined;
 
-  /** 切换识别版本：闲时/极速仅收公网 URL，从本地上传自动切到 URL 模式。 */
+  /** 切换识别版本：一句话版吃本地文件（上传/录音），其余版本仅收 URL。 */
   const changeVersion = (v: ASRVersion) => {
     setVersion(v);
-    if (v !== "standard") {
-      setMode((m) => (m === "upload" ? "url" : m));
-      setFileError("");
+    setFileError("");
+    if (v === "sentence") {
+      setMode((m) => (m === "url" ? "upload" : m));
+    } else {
+      if (recState === "recording") discardRec();
+      setMode("url");
     }
   };
 
@@ -216,8 +219,9 @@ export default function ASRPage() {
       const params: Record<string, unknown> = {
         srt: true,
         language: language.trim(), // 留空 = 服务端自动识别语种/方言
+        // 联动产物（分离人声轨）是本地文件，固定走一句话识别
+        version: artifactMode ? "sentence" : version,
       };
-      if (!artifactMode) params.version = version;
       if (hotwords.trim()) params.hotwords = hotwords.trim();
       if (artifactMode) {
         // artifact_input 模式：已有人声轨产物直接作为输入（params 仅 srt/language，无 url/file_ids）。
@@ -351,6 +355,8 @@ export default function ASRPage() {
   }, [recState]);
 
   const canSubmit = artifactMode || (mode === "url" ? url.trim() !== "" : file != null);
+  // URL 提示仅标准/闲时/极速版渲染（一句话版没有 URL 输入）
+  const urlHint = version === "sentence" ? undefined : URL_HINT[version];
   const seekTrack = { title: playTitle, sub: playSub };
 
   return (
@@ -406,12 +412,15 @@ export default function ASRPage() {
                   hint={
                     version === "idle"
                       ? "闲时任务在服务端持续等待结果，可关闭页面，完成后在历史产物查看"
-                      : undefined
+                      : version === "sentence"
+                        ? "单向流式大模型的整段同步模式，本地文件秒级返回"
+                        : undefined
                   }
                 >
                   {() => (
                     <Tabs<ASRVersion>
                       items={[
+                        { value: "sentence", label: "一句话识别" },
                         { value: "standard", label: "标准版" },
                         { value: "idle", label: "闲时版" },
                         { value: "flash", label: "极速版" },
@@ -423,15 +432,14 @@ export default function ASRPage() {
                 </Field>
 
                 <Tabs<Mode>
-                  items={[
-                    ...(version === "standard"
+                  items={
+                    version === "sentence"
                       ? [
                           { value: "upload" as const, label: "本地上传", icon: <Upload size={13} strokeWidth={1.75} /> },
                           { value: "recording" as const, label: "麦克风录音", icon: <Mic size={13} strokeWidth={1.75} /> },
                         ]
-                      : []),
-                    { value: "url" as const, label: "音频 URL", icon: <Link2 size={13} strokeWidth={1.75} /> },
-                  ]}
+                      : [{ value: "url" as const, label: "音频 URL", icon: <Link2 size={13} strokeWidth={1.75} /> }]
+                  }
                   value={mode}
                   onChange={(m) => {
                     if (mode === "recording" && m !== "recording" && recState === "recording") discardRec();
@@ -570,7 +578,7 @@ export default function ASRPage() {
                     )}
                   </div>
                 ) : (
-                  <Field label="音频 URL" hint={URL_HINT[version]}>
+                  <Field label="音频 URL" hint={urlHint}>
                     {({ id, ...rest }) => (
                       <Input
                         id={id}

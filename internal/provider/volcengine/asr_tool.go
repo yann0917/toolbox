@@ -31,24 +31,32 @@ var (
 	asrFlashTimeout     = 15 * time.Minute
 )
 
-// 录音文件识别版本（大模型三版本：6561/1354868 标准版、6561/2608618 闲时版、6561/2608628 极速版）。
+// ASR 版本与服务的对应关系（四条通道、两个服务族，开通控制台时按此核对）：
+//   - sentence 一句话识别：单向流式大模型（6561/2628951）的整段非流式模式，
+//     本地文件 WS 同步秒级返回，资源 volc.bigasr.sauc.duration；
+//   - standard 标准版：录音文件识别大模型（6561/1354868），URL 异步 submit/query，
+//     资源 volc.seedasr.auc；
+//   - idle 闲时版（6561/2608618）/ flash 极速版（6561/2608628）：仅 URL。
 const (
-	asrVersionStandard = "standard" // 本地文件走 WS、URL 走异步 submit/query
+	asrVersionSentence = "sentence" // 一句话识别：仅本地文件，WS 同步
+	asrVersionStandard = "standard" // 标准版：仅 URL，异步 submit/query
 	asrVersionIdle     = "idle"     // 仅 URL，闲时算力执行，任务通常 24h 内完成
 	asrVersionFlash    = "flash"    // 仅 URL，同步返回结果（≤100MB、2 小时内音频）
 )
 
-// asrNormalizeVersion 归一版本参数：空与未知值一律回退标准版（向后兼容旧任务参数）。
+// asrNormalizeVersion 归一版本参数：空与未知值一律回退标准版（向后兼容旧任务参数）；
+// 旧参数 standard+本地文件的组合在 Run 中自动按一句话识别处理（标准版语义已改为仅 URL）。
 func asrNormalizeVersion(v string) string {
 	switch v {
-	case asrVersionIdle, asrVersionFlash:
+	case asrVersionSentence, asrVersionIdle, asrVersionFlash:
 		return v
 	}
 	return asrVersionStandard
 }
 
-// ASRTool 语音识别工具：本地文件走 WS 同步通道（Files["audio"]），
-// 公网 URL 走异步 submit/query 通道（Params["url"]），产物为转写文本与 SRT 字幕。
+// ASRTool 语音识别工具：一句话识别（本地文件，Files["audio"]，WS 同步）+
+// 录音文件识别标准/闲时/极速（Params["url"]，标准版异步 submit/query，极速同步、闲时长轮询），
+// 产物为转写文本与 SRT 字幕。
 type ASRTool struct {
 	ws     *ASRClient
 	auc    *ASRAUCClient
@@ -107,14 +115,15 @@ var asrLanguages = []provider.ParamOption{
 
 func (t *ASRTool) ParamSpecs() []provider.ParamSpec {
 	return []provider.ParamSpec{
-		{Key: "version", Label: "识别版本", Type: provider.ParamEnum, Default: asrVersionStandard, Group: "输入",
+		{Key: "version", Label: "识别版本", Type: provider.ParamEnum, Default: asrVersionSentence, Group: "输入",
 			Options: []provider.ParamOption{
-				{Value: asrVersionStandard, Label: "标准版（文件/URL）"},
+				{Value: asrVersionSentence, Label: "一句话识别（本地文件，同步秒级）"},
+				{Value: asrVersionStandard, Label: "标准版（URL，录音文件识别）"},
 				{Value: asrVersionIdle, Label: "闲时版（URL，24h 内完成）"},
 				{Value: asrVersionFlash, Label: "极速版（URL，秒级返回）"},
 			}},
 		{Key: "url", Label: "音频 URL", Type: provider.ParamString,
-			Placeholder: "公网音频 URL，与上传文件二选一", Group: "输入"},
+			Placeholder: "公网音频 URL，标准/闲时/极速版使用", Group: "输入"},
 		{Key: "hotwords", Label: "热词", Type: provider.ParamString,
 			Placeholder: "逗号分隔热词", Group: "输入"},
 		{Key: "language", Label: "语言", Type: provider.ParamEnum, Default: "", Group: "输入",
@@ -134,9 +143,18 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 	if audioPath == "" && audioURL == "" {
 		return provider.TaskOutput{}, fmt.Errorf("缺少输入：请上传音频文件或提供音频 URL")
 	}
-	// 闲时版/极速版协议只收 audio.url（6561/2608618、6561/2608628），本地文件仅标准版可用。
-	if version != asrVersionStandard && audioPath != "" {
-		return provider.TaskOutput{}, fmt.Errorf("闲时版/极速版仅支持音频 URL 输入，本地文件请使用标准版")
+	// 一句话版只吃本地文件（sauc WS 协议传音频字节）；
+	// 旧参数 standard+本地文件的组合自动按一句话识别处理（标准版语义已改为仅 URL，兼容历史任务重跑）。
+	if version == asrVersionSentence && audioPath == "" {
+		return provider.TaskOutput{}, fmt.Errorf("一句话识别仅支持本地上传音频文件，URL 请使用标准版/闲时版/极速版")
+	}
+	if version != asrVersionSentence && audioPath != "" {
+		switch version {
+		case asrVersionStandard:
+			version = asrVersionSentence
+		default: // 闲时/极速协议只收 audio.url（6561/2608618、6561/2608628）
+			return provider.TaskOutput{}, fmt.Errorf("闲时版/极速版仅支持音频 URL 输入，本地文件请使用一句话识别")
+		}
 	}
 	var format string
 	if audioPath != "" {
@@ -154,13 +172,13 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 		source string
 	)
 	switch {
-	case audioPath != "": // 本地文件模式：WS 同步识别
+	case audioPath != "": // 一句话识别：本地文件 WS 同步（旧 standard+文件参数已自动归入本分支）
 		source = "file"
 		audio, err := os.ReadFile(audioPath)
 		if err != nil {
 			return provider.TaskOutput{}, fmt.Errorf("读取音频文件失败: %w", err)
 		}
-		report(20, "正在识别音频（本地文件）", nil)
+		report(20, "正在识别音频（一句话）", nil)
 		resp, err = t.ws.Recognize(ctx, ASRNostreamReq{
 			Audio:    audio,
 			Format:   format,

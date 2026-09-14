@@ -157,6 +157,36 @@ func TestASRToolNoInput(t *testing.T) {
 	}
 }
 
+func TestASRToolVersionInputConstraints(t *testing.T) {
+	// 40KB = 32KB 首片 + 8KB 末片，满足 mock 对首包正 seq / 末包负 seq 的协议断言
+	testAudio := make([]byte, 40*1024)
+	for i := range testAudio {
+		testAudio[i] = byte(i % 251)
+	}
+	tool := newASRToolWithMockWS(t, testAudio, "mp3")
+
+	// 一句话版只收本地文件，URL 输入报参数错误
+	_, err := tool.Run(context.Background(), provider.TaskInput{
+		Params: map[string]any{"url": "https://example.com/a.mp3", "version": "sentence"},
+	}, nopReport)
+	if err == nil || !strings.Contains(err.Error(), "一句话识别仅支持本地上传") {
+		t.Fatalf("err = %v, 期望一句话版拒绝 URL 输入", err)
+	}
+
+	// 旧参数组合 standard+本地文件 → 自动按一句话识别走 WS（历史任务重跑兼容）
+	audioFile := writeTestAudio(t, t.TempDir(), "legacy.mp3", testAudio)
+	out, err := tool.Run(context.Background(), provider.TaskInput{
+		Files:  map[string]string{"audio": audioFile},
+		Params: map[string]any{"version": "standard"},
+	}, nopReport)
+	if err != nil {
+		t.Fatalf("Run() err = %v", err)
+	}
+	if out.Summary["version"] != "sentence" {
+		t.Errorf("standard+本地文件应自动按一句话识别处理，summary.version = %v", out.Summary["version"])
+	}
+}
+
 func TestASRToolIdleMode(t *testing.T) {
 	oldInterval, oldMax, oldTimeout := asrIdlePollInterval, asrIdlePollMax, asrIdlePollTimeout
 	asrIdlePollInterval, asrIdlePollMax, asrIdlePollTimeout = 5*time.Millisecond, 10*time.Millisecond, 3*time.Second

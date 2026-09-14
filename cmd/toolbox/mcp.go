@@ -161,14 +161,24 @@ func addMCPTools(server *mcp.Server, r *mcpRunner) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "toolbox_asr",
-		Description: "语音识别：本地音频（path，标准版）或公网 URL（url）转文字，输出分句时间戳与 SRT 字幕。url 模式可选 version：standard 标准 / idle 闲时低价 24h 内 / flash 极速秒级。",
+		Description: "语音识别：本地音频 path 走一句话识别（同步秒级）；公网 URL 走录音文件识别，version=standard 异步 / idle 闲时低价 24h 内 / flash 极速秒级。输出分句时间戳与 SRT 字幕。",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in mcpASRIn) (*mcp.CallToolResult, jsonResult, error) {
 		if (in.Path == "") == (in.URL == "") {
 			return nil, jsonResult{}, fmt.Errorf("path 与 url 恰好提供其一")
 		}
 		version := in.Version
 		if version == "" {
-			version = "standard"
+			if in.Path != "" {
+				version = "sentence"
+			} else {
+				version = "standard"
+			}
+		}
+		if in.Path != "" && version != "sentence" {
+			return nil, jsonResult{}, fmt.Errorf("标准版/闲时版/极速版仅支持 URL 输入；本地文件请用 version=sentence（一句话识别）")
+		}
+		if in.URL != "" && version == "sentence" {
+			return nil, jsonResult{}, fmt.Errorf("一句话识别仅支持本地音频文件；URL 请用 version=standard / idle / flash")
 		}
 		srt := true
 		if in.Srt != nil {
@@ -413,9 +423,9 @@ type mcpTTSStreamIn struct {
 }
 
 type mcpASRIn struct {
-	Path     string `json:"path,omitempty" jsonschema:"本地音频文件路径（mp3/wav/ogg/pcm，标准版），与 url 二选一"`
+	Path     string `json:"path,omitempty" jsonschema:"本地音频文件路径（mp3/wav/ogg/pcm，走一句话识别同步秒级），与 url 二选一"`
 	URL      string `json:"url,omitempty" jsonschema:"公网音频 URL，与 path 二选一"`
-	Version  string `json:"version,omitempty" jsonschema:"识别版本: standard（默认）|idle（低价 24h 内）|flash（极速秒级）；idle/flash 仅收 URL"`
+	Version  string `json:"version,omitempty" jsonschema:"识别版本，缺省按输入推断（path→sentence，url→standard）: sentence 一句话识别（本地文件）/ standard 标准版（URL，异步）/ idle 闲时（URL，24h 内）/ flash 极速（URL，秒级）"`
 	Language string `json:"language,omitempty" jsonschema:"识别语言，留空自动识别；可选 zh-CN/en-US/ja-JP/yue-CN 等 25 种"`
 	Hotwords string `json:"hotwords,omitempty" jsonschema:"热词，逗号分隔，提升专有名词识别率"`
 	Srt      *bool  `json:"srt,omitempty" jsonschema:"是否额外产出 SRT 字幕，默认 true"`

@@ -47,10 +47,11 @@ make all
 # 流式合成（低延迟；20 语种、8 方言、语音指令 --context-text、字级字幕 --subtitle）
 ./bin/toolbox tts-stream "用粤语说一段开场白" --explicit-dialect yue --subtitle --out /tmp/intro.mp3 --json
 
-# 音频转文字（--srt 默认产出 SRT 字幕，--srt=false 关闭；其他格式见 skill 参考）
+# 一句话识别（本地文件同步秒级，缺省版本；--srt 默认产出 SRT 字幕）
 ./bin/toolbox asr /tmp/recording.mp3 --out /tmp/transcript.txt --json
 
-# 录音文件识别版本 --version standard|idle|flash（闲时/极速仅收公网 URL）
+# 录音文件识别（URL；--version standard|idle|flash，闲时/极速仅收公网 URL）
+./bin/toolbox asr --url "https://example.com/talk.mp3"                            --json   # 标准版，异步转写
 ./bin/toolbox asr --url "https://example.com/talk.mp3" --version flash --json   # 极速版，同步秒级返回
 ./bin/toolbox asr --url "https://example.com/talk.mp3" --version idle  --json   # 闲时版，低价、24h 内完成
 

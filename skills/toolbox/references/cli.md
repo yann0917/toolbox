@@ -136,8 +136,11 @@ toolbox asr <file> [--url audio_url] [flags]
 
 位置参数 file 与 `--url` 二选一；同传报参数错误，都不传也报参数错误。
 
+版本按输入自动推断（`--version` 可显式覆盖）：本地文件 → `sentence` 一句话识别（单向流式大模型整段同步，秒级）；URL → `standard` 标准版（录音文件识别，异步 submit/query 后接 `idle` 闲时 / `flash` 极速）。
+
 | flag | 默认 | 说明 |
 |---|---|---|
+| `--version` | 按输入推断 | `sentence` 一句话（仅本地文件）/ `standard` 标准版（仅 URL）/ `idle` 闲时（仅 URL）/ `flash` 极速（仅 URL）；版本与输入不匹配报参数错误 |
 | `--out` | 数据目录自动命名 | 转写文本输出路径 |
 | `--srt` | 开 | 额外产出 `.srt` 字幕（artifacts 中 kind=`subtitle`）；关闭传 `--srt=false` |
 | `--hotwords` | 空 | 逗号分隔热词，提升专有名词准确率 |
@@ -145,7 +148,7 @@ toolbox asr <file> [--url audio_url] [flags]
 | `--url` | — | 公网音频 URL，走异步批量通道 |
 | `--json` | 关 | 机器可读输出 |
 
-- 本地文件：官方协议直发识别端点（全速分片），无需公网可达。
+- 本地文件：官方协议直发一句话识别端点（全速分片），无需公网可达。
 - `artifacts` 中 `transcript` 为全文文本；分句与时间戳在 JSON `summary.segments` 中（每句 `{text, start_ms, end_ms}`）。
 - 支持 mp3/wav/ogg/pcm（wav/pcm 内部需 pcm_s16le），其他格式报参数错误。
 
