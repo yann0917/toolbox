@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, RefreshCw, Trash2 } from "lucide-react";
 import { fetchJSON } from "../lib/api";
 import type { Task, TaskDetail } from "../lib/types";
-import { ArtifactRow } from "../components/ArtifactRow";
+import { TaskDetailPanel } from "../components/TaskDetail";
 import {
   Card,
   CardHeader,
@@ -56,6 +56,17 @@ export default function HistoryPage() {
       void qc.invalidateQueries({ queryKey: ["tasks"] });
     },
     onError: (e: Error) => toast({ tone: "error", title: "删除失败", description: e.message }),
+  });
+
+  /* 重跑 = 后端克隆原任务（params 与输入引用原样回传）；上传文件/产物已被清理时后端报可读错误 */
+  const rerun = useMutation({
+    mutationFn: (id: string) =>
+      fetchJSON<{ task_id: string }>(`/api/tasks/${id}/rerun`, { method: "POST" }),
+    onSuccess: (d) => {
+      toast({ tone: "ok", title: "已重新提交", description: `新任务 ${d.task_id.slice(0, 8)}，进度见工作台或工具页` });
+      void qc.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: (e: Error) => toast({ tone: "error", title: "重跑失败", description: e.message }),
   });
 
   const items = (list.data?.items ?? []).filter((t) => !toolFilter || t.tool === toolFilter);
@@ -136,11 +147,15 @@ export default function HistoryPage() {
                 </div>
 
                 {selected === t.id && (
-                  <div className="rise space-y-2 border-t border-line bg-panel px-4 py-3">
+                  <div className="rise border-t border-line bg-panel px-4 py-3">
                     {detail.isLoading ? (
                       <Skeleton className="h-12 w-full" />
-                    ) : detail.data && detail.data.artifacts.length > 0 ? (
-                      detail.data.artifacts.map((a) => <ArtifactRow key={a.id} a={a} />)
+                    ) : detail.data ? (
+                      <TaskDetailPanel
+                        d={detail.data}
+                        rerunPending={rerun.isPending && rerun.variables === t.id}
+                        onRerun={() => rerun.mutate(t.id)}
+                      />
                     ) : (
                       <p className="py-2 text-xs text-muted">
                         {t.error ? `失败原因：${t.error}` : "该任务没有产物"}

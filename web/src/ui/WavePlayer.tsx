@@ -17,6 +17,7 @@ export function WavePlayer({ src, title, sub, durationSec, className = "" }: Wav
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const timeRef = useRef<HTMLSpanElement>(null);
+  const fillRef = useRef<HTMLDivElement>(null);
   const colorsRef = useRef({ accent: "#ff8a3d", idle: "rgba(255,255,255,.18)" });
   const peaksRef = useRef<number[] | null>(null);
   const draggingRef = useRef(false);
@@ -122,14 +123,21 @@ export function WavePlayer({ src, title, sub, durationSec, className = "" }: Wav
     }
   }, [duration, isCurrent]);
 
-  /* 时间推进 → 直接改 DOM 与画布，不触发 React 重渲染 */
+  /* 时间推进 → 直接改 DOM 与画布，不触发 React 重渲染。
+     无波形降级（跨域源拿不到峰值）时同步推进进度条填充。 */
   useEffect(() => {
     const update = (t: number) => {
       if (timeRef.current) timeRef.current.textContent = formatTime(t);
+      if (fillRef.current) {
+        fillRef.current.style.width = duration > 0 ? `${Math.min(100, (t / duration) * 100)}%` : "0%";
+      }
       draw();
     };
     if (isCurrent) update(getTime());
-    else if (timeRef.current) timeRef.current.textContent = formatTime(0);
+    else {
+      if (timeRef.current) timeRef.current.textContent = formatTime(0);
+      if (fillRef.current) fillRef.current.style.width = "0%";
+    }
     draw();
     const unsub = subscribeTime(update);
     return () => { unsub(); };
@@ -164,14 +172,6 @@ export function WavePlayer({ src, title, sub, durationSec, className = "" }: Wav
     draggingRef.current = false;
   };
 
-  if (failed) {
-    return (
-      <div className={`flex items-center gap-3 ${className}`}>
-        <audio controls src={src} className="h-9 w-full" />
-      </div>
-    );
-  }
-
   return (
     <div className={`flex items-center gap-3 ${className}`}>
       <button
@@ -205,6 +205,13 @@ export function WavePlayer({ src, title, sub, durationSec, className = "" }: Wav
       >
         {peaksReady ? (
           <canvas ref={canvasRef} className="h-full w-full" />
+        ) : failed ? (
+          /* 无波形降级：跨域源无法解码峰值时，退为进度条式，仍可点击/拖拽定位 */
+          <div className="flex h-full w-full items-center">
+            <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-line-strong">
+              <div ref={fillRef} className="absolute inset-y-0 left-0 rounded-full bg-accent" style={{ width: "0%" }} />
+            </div>
+          </div>
         ) : (
           <Skeleton className="h-full w-full" />
         )}

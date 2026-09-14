@@ -16,9 +16,10 @@ import {
   X,
 } from "lucide-react";
 import { apiBase, fetchJSON } from "../lib/api";
-import { formatTime, subscribeTime, usePlayer } from "../lib/player";
 import type { Artifact, TaskDetail, TaskStatus } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
+import { useTranscriptSync } from "../lib/useTranscriptSync";
+import { TranscriptList } from "../components/TranscriptList";
 import {
   Button,
   Card,
@@ -136,7 +137,6 @@ export default function ASRPage() {
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [playSrc, setPlaySrc] = useState<string | null>(null);
-  const [activeIdx, setActiveIdx] = useState(-1);
   const [submitError, setSubmitError] = useState("");
   const [fileError, setFileError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -255,37 +255,8 @@ export default function ASRPage() {
     },
   });
 
-  /* 分句高亮：跟随全局播放通道的时间推进（rAF 通道，不触发 60fps 重渲染），
-     仅当当前句变化时才 setState。 */
-  useEffect(() => {
-    if (segments.length === 0) return;
-    const unsub = subscribeTime((t) => {
-      if (usePlayer.getState().track?.src !== playSrc) {
-        setActiveIdx((prev) => (prev === -1 ? prev : -1));
-        return;
-      }
-      const ms = t * 1000;
-      let idx = -1;
-      for (let i = 0; i < segments.length; i++) {
-        if (ms >= segments[i].start_ms && ms < segments[i].end_ms) {
-          idx = i;
-          break;
-        }
-      }
-      setActiveIdx((prev) => (prev === idx ? prev : idx));
-    });
-    return () => {
-      unsub();
-    };
-  }, [segments, playSrc]);
-
-  // 点击句子 → 回放跳转到该句起始时间；若当前播放的不是本任务的音频，先切过去
-  const seekTo = (ms: number) => {
-    if (!playSrc) return;
-    const st = usePlayer.getState();
-    if (st.track?.src !== playSrc) st.play({ id: playSrc, src: playSrc, title: playTitle, sub: playSub }, true);
-    st.seek(ms / 1000);
-  };
+  /** 音频-文稿同步：当前句高亮 + 点击跳播（切轨时先切播放源再 seek）。 */
+  const { activeIdx, seekTo } = useTranscriptSync(segments, playSrc);
 
   const pickFile = (f: File) => {
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
@@ -305,9 +276,7 @@ export default function ASRPage() {
   };
 
   const canSubmit = artifactMode || (mode === "upload" ? file != null : url.trim() !== "");
-  const isCurrentTrack = usePlayer((s) => s.track?.src === playSrc && playSrc !== null);
-  // 只有当前播放的正是本任务的音频、且分句非空时，才标记「当前句」
-  const shownActive = isCurrentTrack && segments.length > 0 ? activeIdx : -1;
+  const seekTrack = { title: playTitle, sub: playSub };
 
   return (
     <>
@@ -624,33 +593,11 @@ export default function ASRPage() {
                 ))}
               </div>
             ) : segments.length > 0 ? (
-              <div className="overflow-hidden rounded-[var(--radius-sm)] border border-line">
-                <ul className="max-h-96 divide-y divide-line overflow-y-auto">
-                  {segments.map((seg, i) => (
-                    <li key={i}>
-                      <button
-                        type="button"
-                        onClick={() => seekTo(seg.start_ms)}
-                        aria-current={shownActive === i ? "true" : undefined}
-                        className={`flex w-full cursor-pointer items-baseline gap-3 border-l-2 px-4 py-2.5 text-left transition-colors duration-150 ${
-                          shownActive === i
-                            ? "border-accent bg-raise-2"
-                            : "border-transparent hover:bg-raise-2"
-                        }`}
-                      >
-                        <span
-                          className={`shrink-0 font-mono text-[11px] tabular-nums ${
-                            shownActive === i ? "text-accent" : "text-muted"
-                          }`}
-                        >
-                          [{formatTime(seg.start_ms / 1000)}]
-                        </span>
-                        <span className="min-w-0 flex-1 text-sm leading-relaxed">{seg.text}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <TranscriptList
+                segments={segments}
+                activeIdx={activeIdx}
+                onSeek={(ms) => seekTo(ms, seekTrack)}
+              />
             ) : (
               <p className="py-2 text-xs text-muted">未识别到分句内容，可直接下载转写文本查看。</p>
             )}

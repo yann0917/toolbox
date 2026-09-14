@@ -12,6 +12,10 @@ export interface Task {
   error?: string;
   cost_ms: number;
   created_at: string;
+  /** 提交参数 JSON（重跑与回放溯源用） */
+  params?: Record<string, unknown>;
+  /** 原始输入引用：上传文件 / 跨工具产物（URL 输入直接在 params.url） */
+  input?: { file_ids?: string[]; artifact_input?: string };
   /** 仅任务详情接口返回：provider.TaskOutput.Summary 的 JSON */
   summary?: {
     segments?: { text: string; start_ms: number; end_ms: number }[];

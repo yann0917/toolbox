@@ -3,7 +3,9 @@ import { useMutation } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowUpRight,
+  ClipboardCopy,
   Clock,
+  Download,
   ListChecks,
   NotebookPen,
   RefreshCw,
@@ -13,7 +15,17 @@ import { Link } from "react-router-dom";
 import { fetchJSON } from "../lib/api";
 import type { TaskDetail, TaskStatus } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
+import { useTranscriptSync } from "../lib/useTranscriptSync";
+import { resolvePlaySrc } from "../lib/playback";
+import { TranscriptList } from "../components/TranscriptList";
 import { ArtifactRow } from "../components/ArtifactRow";
+import {
+  MINUTES_TEMPLATES,
+  defaultMinutesTemplate,
+  buildMinutesMarkdown,
+  minutesFilename,
+  type MinutesTemplate,
+} from "../lib/minutesExport";
 import { MINUTES_PRICE, PRICE_SNAPSHOT_DATE } from "../lib/pricing";
 import {
   Button,
@@ -29,6 +41,7 @@ import {
   Select,
   Skeleton,
   StatusBadge,
+  WavePlayer,
   useToast,
 } from "../ui";
 
@@ -72,6 +85,7 @@ export default function MinutesPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [submitError, setSubmitError] = useState("");
+  const [tpl, setTpl] = useState<MinutesTemplate>(defaultMinutesTemplate);
   const urlRef = useRef<HTMLDivElement>(null);
   const focusUrl = () => urlRef.current?.querySelector("input")?.focus();
   const { toast } = useToast();
@@ -143,10 +157,37 @@ export default function MinutesPage() {
   const urlValid = /^https?:\/\//i.test(url.trim());
   const canSubmit = urlValid && features.length > 0;
 
+  /** 导出：模板决定章节取舍，内容全部来自妙记既有结构化结果（零 LLM） */
+  const exportMd = () => {
+    if (!task) return;
+    const md = buildMinutesMarkdown(task, tpl);
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = minutesFilename(task);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast({ tone: "ok", title: "已导出 Markdown", description: a.download });
+  };
+  const copyMd = async () => {
+    if (!task) return;
+    try {
+      await navigator.clipboard.writeText(buildMinutesMarkdown(task, tpl));
+      toast({ tone: "ok", title: "已复制到剪贴板" });
+    } catch (e) {
+      toast({ tone: "error", title: "复制失败", description: (e as Error).message });
+    }
+  };
+
   const artifacts = detail?.artifacts ?? [];
   const task = detail?.task;
   const summary = task?.summary;
   const transcriptPreview = (summary?.segments ?? []).slice(0, 200);
+  /* 同步回放：源音视频为输入 URL（跨域时波形降级为进度条，仍可点击分句跳播） */
+  const playSrc = task ? resolvePlaySrc(task, artifacts) : null;
+  const durationSec = summary?.duration_ms ? summary.duration_ms / 1000 : undefined;
+  const seekTrack = { title: "妙记源音视频", sub: typeof task?.params?.url === "string" ? task.params.url : undefined };
+  const { activeIdx, seekTo } = useTranscriptSync(transcriptPreview, playSrc);
 
   return (
     <>
@@ -371,6 +412,33 @@ export default function MinutesPage() {
           </CardBody>
         ) : (
           <CardBody className="space-y-4">
+            {/* 导出工具条：模板选章节取舍，导出/复制 Markdown */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-line bg-raise-2 px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <MicroLabel className="shrink-0">导出模板</MicroLabel>
+                <Select
+                  value={tpl.id}
+                  onChange={(e) => setTpl(MINUTES_TEMPLATES.find((t) => t.id === e.target.value) ?? defaultMinutesTemplate)}
+                  className="w-44"
+                  aria-label="选择导出模板"
+                >
+                  {MINUTES_TEMPLATES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" icon={<ClipboardCopy size={13} strokeWidth={1.75} />} onClick={() => void copyMd()}>
+                  复制
+                </Button>
+                <Button variant="secondary" size="sm" icon={<Download size={13} strokeWidth={1.75} />} onClick={exportMd}>
+                  导出 Markdown
+                </Button>
+              </div>
+            </div>
+
             {/* 全文总结 */}
             {summary?.summary_text && (
               <section className="space-y-1.5">
@@ -446,20 +514,30 @@ export default function MinutesPage() {
               </section>
             )}
 
-            {/* 转写预览 */}
+            {/* 转写预览：点句跳播，跟随全局播放通道高亮当前句 */}
             {transcriptPreview.length > 0 && (
               <section className="space-y-1.5">
                 <MicroLabel>
-                  转写预览 · {summary?.sentences ?? transcriptPreview.length} 句 · {summary?.speakers_count ?? "?"} 个说话人
+                  转写{playSrc ? "回放" : "预览"} · {summary?.sentences ?? transcriptPreview.length} 句 · {summary?.speakers_count ?? "?"} 个说话人
                 </MicroLabel>
-                <div className="max-h-72 space-y-1 overflow-y-auto rounded-[var(--radius-sm)] border border-line bg-raise-2 p-3">
-                  {transcriptPreview.map((seg, i) => (
-                    <p key={i} className="text-[13px] leading-relaxed text-fg-2">
-                      <span className="mr-2 font-mono text-[11px] tabular-nums text-muted">{fmtClock(seg.start_ms)}</span>
-                      {seg.text}
-                    </p>
-                  ))}
-                </div>
+                {playSrc && (
+                  <div className="rounded-[var(--radius-sm)] border border-line bg-raise-2 p-3">
+                    <WavePlayer
+                      src={playSrc}
+                      title="妙记源音视频"
+                      sub={seekTrack.sub}
+                      durationSec={durationSec}
+                      className="min-w-0"
+                    />
+                  </div>
+                )}
+                <TranscriptList
+                  segments={transcriptPreview}
+                  activeIdx={playSrc ? activeIdx : -1}
+                  onSeek={playSrc ? (ms) => seekTo(ms, seekTrack) : undefined}
+                  formatTimecode={fmtClock}
+                  maxHeightClass="max-h-72"
+                />
               </section>
             )}
 
