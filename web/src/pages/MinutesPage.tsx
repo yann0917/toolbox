@@ -183,12 +183,12 @@ export default function MinutesPage() {
   const artifacts = detail?.artifacts ?? [];
   const task = detail?.task;
   const summary = task?.summary;
-  const transcriptPreview = (summary?.segments ?? []).slice(0, 200);
+  const transcriptSegments = summary?.segments ?? [];
   /* 同步回放：源音视频为输入 URL（跨域时波形降级为进度条，仍可点击分句跳播） */
   const playSrc = task ? resolvePlaySrc(task, artifacts) : null;
   const durationSec = summary?.duration_ms ? summary.duration_ms / 1000 : undefined;
   const seekTrack = { title: "妙记源音视频", sub: typeof task?.params?.url === "string" ? task.params.url : undefined };
-  const { activeIdx, seekTo } = useTranscriptSync(transcriptPreview, playSrc);
+  const { activeIdx, seekTo } = useTranscriptSync(transcriptSegments, playSrc);
 
   return (
     <>
@@ -518,11 +518,11 @@ export default function MinutesPage() {
               </section>
             )}
 
-            {/* 转写预览：点句跳播，跟随全局播放通道高亮当前句 */}
-            {transcriptPreview.length > 0 && (
+            {/* 转写回放：点句跳播，跟随全局播放通道高亮当前句（长转写虚拟滚动） */}
+            {transcriptSegments.length > 0 && (
               <section className="space-y-1.5">
                 <MicroLabel>
-                  转写{playSrc ? "回放" : "预览"} · {summary?.sentences ?? transcriptPreview.length} 句 · {summary?.speakers_count ?? "?"} 个说话人
+                  转写{playSrc ? "回放" : "预览"} · {summary?.sentences ?? transcriptSegments.length} 句 · {summary?.speakers_count ?? "?"} 个说话人
                 </MicroLabel>
                 {playSrc && (
                   <div className="rounded-[var(--radius-sm)] border border-line bg-raise-2 p-3">
@@ -536,11 +536,11 @@ export default function MinutesPage() {
                   </div>
                 )}
                 <TranscriptList
-                  segments={transcriptPreview}
+                  segments={transcriptSegments}
                   activeIdx={playSrc ? activeIdx : -1}
                   onSeek={playSrc ? (ms) => seekTo(ms, seekTrack) : undefined}
                   formatTimecode={fmtClock}
-                  maxHeightClass="max-h-72"
+                  maxHeight={288}
                 />
               </section>
             )}

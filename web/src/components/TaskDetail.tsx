@@ -85,7 +85,7 @@ export function TaskDetailPanel({ d, rerunPending, onRerun }: TaskDetailPanelPro
             activeIdx={playSrc ? activeIdx : -1}
             onSeek={playSrc ? (ms) => seekTo(ms, track) : undefined}
             formatTimecode={timecode}
-            maxHeightClass="max-h-64"
+            maxHeight={256}
           />
         </div>
       )}
