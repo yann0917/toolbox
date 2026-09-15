@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowUpRight,
   ClipboardCopy,
   Clock,
   Download,
+  FileText,
   ListChecks,
   NotebookPen,
+  Printer,
   RefreshCw,
   SlidersHorizontal,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { fetchJSON } from "../lib/api";
+import { apiBase, fetchJSON } from "../lib/api";
 import type { TaskDetail, TaskStatus } from "../lib/types";
 import { useTaskEvents } from "../lib/ws";
 import { useTranscriptSync } from "../lib/useTranscriptSync";
@@ -20,13 +22,6 @@ import { resolvePlaySrc } from "../lib/playback";
 import { TranscriptList } from "../components/TranscriptList";
 import { ArtifactRow } from "../components/ArtifactRow";
 import { DictFill } from "../components/DictFill";
-import {
-  MINUTES_TEMPLATES,
-  defaultMinutesTemplate,
-  buildMinutesMarkdown,
-  minutesFilename,
-  type MinutesTemplate,
-} from "../lib/minutesExport";
 import { MINUTES_PRICE, PRICE_SNAPSHOT_DATE } from "../lib/pricing";
 import {
   Button,
@@ -86,7 +81,12 @@ export default function MinutesPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [submitError, setSubmitError] = useState("");
-  const [tpl, setTpl] = useState<MinutesTemplate>(defaultMinutesTemplate);
+  const [tpl, setTpl] = useState("standard");
+  const templates = useQuery({
+    queryKey: ["minutes-templates"],
+    queryFn: () => fetchJSON<{ id: string; name: string }[]>("/api/minutes/templates"),
+    staleTime: Infinity,
+  });
   const urlRef = useRef<HTMLDivElement>(null);
   const focusUrl = () => urlRef.current?.querySelector("input")?.focus();
   const { toast } = useToast();
@@ -158,22 +158,52 @@ export default function MinutesPage() {
   const urlValid = /^https?:\/\//i.test(url.trim());
   const canSubmit = urlValid && features.length > 0;
 
-  /** 导出：模板决定章节取舍，内容全部来自妙记既有结构化结果（零 LLM） */
-  const exportMd = () => {
-    if (!task) return;
-    const md = buildMinutesMarkdown(task, tpl);
-    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+  /** 导出：组装在服务端（模板单一事实来源），markdown 供复制/下载，docx 供 Word 打开 */
+  const fetchExport = async (format: "markdown" | "docx") => {
+    if (!task) throw new Error("任务未完成");
+    const resp = await fetch(`${apiBase}/api/minutes/${task.id}/export?format=${format}&template=${tpl}`);
+    const ct = resp.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      const j = await resp.json();
+      throw new Error(j.message || "导出失败");
+    }
+    return resp;
+  };
+  const saveBlob = (blob: Blob, name: string) => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = minutesFilename(task);
+    a.download = name;
     a.click();
     URL.revokeObjectURL(a.href);
-    toast({ tone: "ok", title: "已导出 Markdown", description: a.download });
+  };
+  const filenameFrom = (resp: Response, fallbackExt: string) => {
+    const cd = resp.headers.get("content-disposition") ?? "";
+    const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
+    if (m) return decodeURIComponent(m[1]);
+    return `${(summary?.minutes_title || "妙记纪要").replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 40)}_${task?.id.slice(0, 8)}.${fallbackExt}`;
+  };
+  const exportMd = () => {
+    fetchExport("markdown")
+      .then(async (resp) => {
+        const name = filenameFrom(resp, "md");
+        saveBlob(await resp.blob(), name);
+        toast({ tone: "ok", title: "已导出 Markdown", description: name });
+      })
+      .catch((e: Error) => toast({ tone: "error", title: "导出失败", description: e.message }));
+  };
+  const exportDocx = () => {
+    fetchExport("docx")
+      .then(async (resp) => {
+        const name = filenameFrom(resp, "docx");
+        saveBlob(await resp.blob(), name);
+        toast({ tone: "ok", title: "已导出 Word", description: name });
+      })
+      .catch((e: Error) => toast({ tone: "error", title: "导出失败", description: e.message }));
   };
   const copyMd = async () => {
-    if (!task) return;
     try {
-      await navigator.clipboard.writeText(buildMinutesMarkdown(task, tpl));
+      const resp = await fetchExport("markdown");
+      await navigator.clipboard.writeText(await resp.text());
       toast({ tone: "ok", title: "已复制到剪贴板" });
     } catch (e) {
       toast({ tone: "error", title: "复制失败", description: (e as Error).message });
@@ -362,8 +392,8 @@ export default function MinutesPage() {
         </Card>
       </div>
 
-      {/* 结果区 */}
-      <Card className="mt-4">
+      {/* 结果区（打印/PDF 只输出此区域） */}
+      <Card className="print-area mt-4">
         <CardHeader
           title="纪要结果"
           icon={<NotebookPen size={15} strokeWidth={1.75} />}
@@ -416,29 +446,35 @@ export default function MinutesPage() {
           </CardBody>
         ) : (
           <CardBody className="space-y-4">
-            {/* 导出工具条：模板选章节取舍，导出/复制 Markdown */}
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-line bg-raise-2 px-3 py-2">
+            {/* 导出工具条：模板选章节取舍；组装在服务端（markdown/docx），PDF 走浏览器打印 */}
+            <div className="no-print flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-line bg-raise-2 px-3 py-2">
               <div className="flex min-w-0 items-center gap-2">
                 <MicroLabel className="shrink-0">导出模板</MicroLabel>
                 <Select
-                  value={tpl.id}
-                  onChange={(e) => setTpl(MINUTES_TEMPLATES.find((t) => t.id === e.target.value) ?? defaultMinutesTemplate)}
+                  value={tpl}
+                  onChange={(e) => setTpl(e.target.value)}
                   className="w-44"
                   aria-label="选择导出模板"
                 >
-                  {MINUTES_TEMPLATES.map((t) => (
+                  {(templates.data ?? []).map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}
                     </option>
                   ))}
                 </Select>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button variant="ghost" size="sm" icon={<ClipboardCopy size={13} strokeWidth={1.75} />} onClick={() => void copyMd()}>
                   复制
                 </Button>
                 <Button variant="secondary" size="sm" icon={<Download size={13} strokeWidth={1.75} />} onClick={exportMd}>
-                  导出 Markdown
+                  Markdown
+                </Button>
+                <Button variant="secondary" size="sm" icon={<FileText size={13} strokeWidth={1.75} />} onClick={exportDocx}>
+                  Word
+                </Button>
+                <Button variant="secondary" size="sm" icon={<Printer size={13} strokeWidth={1.75} />} onClick={() => window.print()}>
+                  PDF
                 </Button>
               </div>
             </div>

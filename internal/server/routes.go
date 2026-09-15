@@ -44,6 +44,8 @@ func (s *Server) Handler() http.Handler {
 		api.POST("/subtitles/prepare", s.prepareSubtitles)
 		api.POST("/subtitles/export", s.exportSubtitles)
 		api.GET("/subtitles/presets", s.listSubtitlePresets)
+		api.GET("/minutes/templates", s.listMinutesTemplates)
+		api.GET("/minutes/:id/export", s.exportMinutes)
 		if s.mcpHandler != nil {
 			// MCP Streamable HTTP：GET(SSE)/POST/DELETE 全由 handler 处理，不套 JSON 包络
 			api.Any("/mcp", gin.WrapH(s.mcpHandler))

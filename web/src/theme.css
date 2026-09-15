@@ -293,3 +293,25 @@
     }
   }
 }
+
+/* ---------- 打印（妙记「PDF」按钮走浏览器打印，只输出纪要结果区） ---------- */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible !important;
+  }
+  .print-area {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
