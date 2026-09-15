@@ -9,7 +9,6 @@ import {
   FileText,
   ListChecks,
   NotebookPen,
-  Printer,
   RefreshCw,
   SlidersHorizontal,
 } from "lucide-react";
@@ -392,8 +391,8 @@ export default function MinutesPage() {
         </Card>
       </div>
 
-      {/* 结果区（打印/PDF 只输出此区域） */}
-      <Card className="print-area mt-4">
+      {/* 结果区 */}
+      <Card className="mt-4">
         <CardHeader
           title="纪要结果"
           icon={<NotebookPen size={15} strokeWidth={1.75} />}
@@ -446,7 +445,7 @@ export default function MinutesPage() {
           </CardBody>
         ) : (
           <CardBody className="space-y-4">
-            {/* 导出工具条：模板选章节取舍；组装在服务端（markdown/docx），PDF 走浏览器打印 */}
+            {/* 导出工具条：模板选章节取舍，Markdown/Word 组装在服务端 */}
             <div className="no-print flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-line bg-raise-2 px-3 py-2">
               <div className="flex min-w-0 items-center gap-2">
                 <MicroLabel className="shrink-0">导出模板</MicroLabel>
@@ -472,9 +471,6 @@ export default function MinutesPage() {
                 </Button>
                 <Button variant="secondary" size="sm" icon={<FileText size={13} strokeWidth={1.75} />} onClick={exportDocx}>
                   Word
-                </Button>
-                <Button variant="secondary" size="sm" icon={<Printer size={13} strokeWidth={1.75} />} onClick={() => window.print()}>
-                  PDF
                 </Button>
               </div>
             </div>
