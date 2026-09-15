@@ -1,15 +1,18 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, RefreshCw, Trash2 } from "lucide-react";
+import { Clock, RefreshCw, Search, Trash2 } from "lucide-react";
 import { fetchJSON } from "../lib/api";
+import { formatTime } from "../lib/player";
 import type { Task, TaskDetail } from "../lib/types";
 import { TaskDetailPanel } from "../components/TaskDetail";
 import {
+  Button,
   Card,
   CardHeader,
   ConfirmDialog,
   EmptyState,
   IconButton,
+  Input,
   PageHeader,
   Skeleton,
   StatusBadge,
@@ -29,12 +32,44 @@ const filters = [
   { value: "minutes", label: "语音妙记" },
 ];
 
+interface SearchHit {
+  task_id: string;
+  tool: string;
+  created_at: string;
+  matches: { text: string; start_ms: number; end_ms?: number }[];
+}
+
+/** 命中关键词高亮（大小写不敏感） */
+function Highlight({ text, q }: { text: string; q: string }) {
+  if (!q) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const parts: ReactNode[] = [];
+  let i = 0;
+  for (;;) {
+    const hit = lower.indexOf(q.toLowerCase(), i);
+    if (hit < 0) {
+      parts.push(text.slice(i));
+      break;
+    }
+    parts.push(text.slice(i, hit));
+    parts.push(
+      <mark key={hit} className="rounded-[2px] bg-accent/30 px-0.5 text-fg">
+        {text.slice(hit, hit + q.length)}
+      </mark>,
+    );
+    i = hit + q.length;
+  }
+  return <>{parts}</>;
+}
+
 export default function HistoryPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [selected, setSelected] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Task | null>(null);
   const [toolFilter, setToolFilter] = useState("");
+  const [searchQ, setSearchQ] = useState("");
+  const [searched, setSearched] = useState("");
 
   const list = useQuery({
     queryKey: ["tasks", "history"],
@@ -45,6 +80,13 @@ export default function HistoryPage() {
     queryKey: ["task", selected],
     enabled: Boolean(selected),
     queryFn: () => fetchJSON<TaskDetail>(`/api/tasks/${selected}`),
+  });
+
+  const search = useQuery({
+    queryKey: ["search", searched],
+    enabled: searched.trim() !== "",
+    queryFn: () =>
+      fetchJSON<{ items: SearchHit[]; total: number }>(`/api/search?q=${encodeURIComponent(searched.trim())}`),
   });
 
   const del = useMutation({
@@ -70,6 +112,11 @@ export default function HistoryPage() {
   });
 
   const items = (list.data?.items ?? []).filter((t) => !toolFilter || t.tool === toolFilter);
+  // 搜索命中但不在当前列表（超出 50 条/被筛选）的任务：点开后把详情任务置顶补进列表
+  const visibleItems =
+    selected && !items.some((t) => t.id === selected) && detail.data?.task?.id === selected
+      ? [detail.data.task, ...items]
+      : items;
 
   return (
     <>
@@ -98,11 +145,95 @@ export default function HistoryPage() {
         }
       />
 
-      <Card>
+      {/* 转写全文搜索 */}
+      <div className="mt-4 flex items-center gap-2">
+        <div className="relative max-w-md min-w-0 flex-1">
+          <Search size={14} strokeWidth={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <Input
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && setSearched(searchQ.trim())}
+            placeholder="搜索历史转写内容，回车搜索…"
+            aria-label="搜索历史转写内容"
+            className="pl-8"
+          />
+        </div>
+        {searched !== "" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSearched("");
+              setSearchQ("");
+            }}
+          >
+            清除搜索
+          </Button>
+        )}
+      </div>
+
+      {searched !== "" && (
+        <Card className="mt-4">
+          <CardHeader
+            title={`「${searched}」的转写命中`}
+            icon={<Search size={15} strokeWidth={1.75} />}
+            aside={
+              search.isLoading ? undefined : (
+                <span className="micro">{search.data?.total ?? 0} 个任务命中 · 点击查看详情</span>
+              )
+            }
+          />
+          {search.isLoading ? (
+            <div className="space-y-2 p-4">
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : (search.data?.items ?? []).length === 0 ? (
+            <EmptyState
+              icon={<Search size={18} strokeWidth={1.75} />}
+              title="没有命中的转写内容"
+              description="试试其他关键词，或确认任务已完成识别。"
+            />
+          ) : (
+            <ul className="divide-y divide-line">
+              {(search.data?.items ?? []).map((hit) => (
+                <li key={hit.task_id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(hit.task_id)}
+                    className="w-full cursor-pointer px-4 py-3 text-left transition-colors duration-150 hover:bg-raise-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-fg-2">{toolLabel(hit.tool)}</span>
+                      <span className="font-mono text-[11px] text-muted">{hit.created_at}</span>
+                      <span className="font-mono text-[11px] text-muted">{hit.task_id.slice(0, 8)}</span>
+                    </div>
+                    <ul className="mt-1.5 space-y-1">
+                      {hit.matches.map((m, i) => (
+                        <li key={i} className="flex items-baseline gap-2 text-xs text-fg-2">
+                          {m.end_ms !== undefined && m.end_ms > 0 && (
+                            <span className="shrink-0 font-mono text-[11px] tabular-nums text-accent">
+                              [{formatTime(m.start_ms / 1000)}]
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1 truncate">
+                            <Highlight text={m.text} q={searched} />
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      <Card className="mt-4">
         <CardHeader
           title="任务列表"
           icon={<Clock size={15} strokeWidth={1.75} />}
-          aside={<span className="micro">{items.length} 条</span>}
+          aside={<span className="micro">{visibleItems.length} 条</span>}
         />
         {list.isLoading ? (
           <div className="space-y-2 p-4">
@@ -110,7 +241,7 @@ export default function HistoryPage() {
               <Skeleton key={i} className="h-10 w-full" />
             ))}
           </div>
-        ) : items.length === 0 ? (
+        ) : visibleItems.length === 0 ? (
           <EmptyState
             icon={<Clock size={18} strokeWidth={1.75} />}
             title="没有匹配的任务"
@@ -118,7 +249,7 @@ export default function HistoryPage() {
           />
         ) : (
           <ul className="divide-y divide-line">
-            {items.map((t) => (
+            {visibleItems.map((t) => (
               <li key={t.id}>
                 <div className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors duration-150 hover:bg-raise-2">
                   <button

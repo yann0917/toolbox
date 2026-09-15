@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -49,6 +50,30 @@ func (d *DB) ListTasks(provider string, statuses []TaskStatus, limit, offset int
 	var items []Task
 	err := q.Order("created_at DESC").Limit(limit).Offset(offset).Find(&items).Error
 	return items, total, err
+}
+
+// SearchSucceededSummaries 转写全文搜索的粗筛：summary 列 LIKE 命中的成功任务，
+// 按创建时间倒序。LIKE 只做候选集粗筛（转义 %/_/\\），精确命中与片段提取由上层
+// 解析 summary JSON 后判定；个人工具量级（千级任务）全表 LIKE 足够，量大再上 FTS5。
+func (d *DB) SearchSucceededSummaries(keyword string, limit int) ([]Task, error) {
+	if strings.TrimSpace(keyword) == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	pattern := "%" + escapeLike(keyword) + "%"
+	var items []Task
+	err := d.gorm.Model(&Task{}).
+		Where("status = ? AND summary LIKE ? ESCAPE '\\'", StatusSucceeded, pattern).
+		Order("created_at DESC").Limit(limit).Find(&items).Error
+	return items, err
+}
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	return strings.ReplaceAll(s, "_", "\\_")
 }
 
 func (d *DB) DeleteTask(id string) error {

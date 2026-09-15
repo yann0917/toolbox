@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Eye, EyeOff, FolderOpen, HardDrive, KeyRound, PlugZap, XCircle } from "lucide-react";
+import { Bell, CheckCircle2, Eye, EyeOff, FolderOpen, HardDrive, KeyRound, PlugZap, XCircle } from "lucide-react";
 import { fetchJSON } from "../lib/api";
 import {
   Button,
@@ -77,6 +77,11 @@ function ConnBadge({ result }: { result?: { ok: boolean; message: string } }) {
 }
 
 export default function SettingsPage() {
+  const [notifyOn, setNotifyOn] = useState(
+    typeof localStorage !== "undefined" && localStorage.getItem("sysnotify") === "on"
+  );
+  const notifyPermission =
+    typeof Notification !== "undefined" ? Notification.permission : "不支持";
   const { toast } = useToast();
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["settings"],
@@ -194,6 +199,46 @@ export default function SettingsPage() {
           </Button>
         </div>
       </form>
+
+      <Card className="mt-4">
+        <CardHeader title="通知" icon={<Bell size={15} strokeWidth={1.75} />} />
+        <CardBody className="space-y-3">
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-fg-2">
+            <input
+              type="checkbox"
+              checked={notifyOn}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  if (!("Notification" in window)) {
+                    toast({ tone: "error", title: "当前浏览器不支持系统通知" });
+                    return;
+                  }
+                  void Notification.requestPermission().then((p) => {
+                    if (p === "granted") {
+                      localStorage.setItem("sysnotify", "on");
+                      setNotifyOn(true);
+                      toast({ tone: "ok", title: "系统通知已开启", description: "页面在后台时，任务终态会发系统通知" });
+                    } else {
+                      toast({ tone: "error", title: "浏览器拒绝了通知权限", description: "请在浏览器地址栏的站点设置中允许通知" });
+                    }
+                  });
+                } else {
+                  localStorage.setItem("sysnotify", "off");
+                  setNotifyOn(false);
+                }
+              }}
+              className="mt-0.5 size-4 cursor-pointer accent-accent"
+            />
+            <span>
+              任务终态系统通知
+              <span className="block text-[11px] text-muted">
+                页面在后台时，任务完成/失败/取消发系统级通知（需要浏览器授权）。
+                当前权限：{notifyPermission}
+              </span>
+            </span>
+          </label>
+        </CardBody>
+      </Card>
 
       <Card className="mt-4">
         <CardHeader title="连通性测试" icon={<PlugZap size={15} strokeWidth={1.75} />} />

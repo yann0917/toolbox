@@ -40,6 +40,7 @@ func (s *Server) Handler() http.Handler {
 		api.POST("/settings/test-connection", s.testConnection)
 		api.GET("/voices", s.listVoices)
 		api.GET("/dicts", s.listDicts)
+		api.GET("/search", s.searchTasks)
 		api.POST("/subtitles/prepare", s.prepareSubtitles)
 		api.POST("/subtitles/export", s.exportSubtitles)
 		if s.mcpHandler != nil {
@@ -346,6 +347,78 @@ func (s *Server) listVoices(c *gin.Context) {
 }
 
 // ---- 字幕工坊（本地能力：纯 Go 解析/分句/导出，零上游 API 成本）----
+
+// searchTasks 转写全文搜索：LIKE 粗筛候选任务，解析 summary 后按分句/总结文本
+// 精确命中提取片段（含时间戳，前端可跳到对应同步回放位置）。
+func (s *Server) searchTasks(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		fail(c, CodeBadRequest, "参数错误：q 必填")
+		return
+	}
+	tasks, err := s.svc.DB().SearchSucceededSummaries(q, 50)
+	if err != nil {
+		failErr(c, err)
+		return
+	}
+	lower := strings.ToLower(q)
+	type matchSeg struct {
+		Text    string `json:"text"`
+		StartMS int64  `json:"start_ms"`
+		EndMS   int64  `json:"end_ms"`
+	}
+	type summaryJSON struct {
+		Segments     []matchSeg `json:"segments"`
+		SummaryText  string     `json:"summary_text"`
+		MinutesTitle string     `json:"minutes_title"`
+	}
+	items := make([]gin.H, 0, len(tasks))
+	for _, t := range tasks {
+		var sv summaryJSON
+		if json.Unmarshal([]byte(t.Summary), &sv) != nil {
+			continue
+		}
+		var matches []matchSeg
+		for _, seg := range sv.Segments {
+			if strings.Contains(strings.ToLower(seg.Text), lower) {
+				matches = append(matches, seg)
+				if len(matches) == 5 {
+					break
+				}
+			}
+		}
+		if len(matches) == 0 {
+			// LIKE 粗筛命中但分句未命中：查总结文本/标题（如妙记 summary_text），
+			// 都不中则本次为键名误命中，丢弃
+			hay := sv.SummaryText
+			if hay == "" {
+				hay = sv.MinutesTitle
+			}
+			if bi := strings.Index(strings.ToLower(hay), lower); bi >= 0 {
+				// 按 rune 提取上下文窗口（本项目语种下 ToLower 不改变 rune 数）
+				runes := []rune(hay)
+				rOff := len([]rune(strings.ToLower(hay)[:bi]))
+				start, end := rOff-30, rOff+len([]rune(q))+60
+				if start < 0 {
+					start = 0
+				}
+				if end > len(runes) {
+					end = len(runes)
+				}
+				matches = append(matches, matchSeg{Text: string(runes[start:end])})
+			} else {
+				continue
+			}
+		}
+		items = append(items, gin.H{
+			"task_id":    t.ID,
+			"tool":       t.Tool,
+			"created_at": t.CreatedAt.Format("2006-01-02 15:04:05"),
+			"matches":    matches,
+		})
+	}
+	ok(c, gin.H{"items": items, "total": len(items)})
+}
 
 type prepareSubtitlesReq struct {
 	Mode       string `json:"mode"` // srt：解析 SRT；text：文稿分句草稿
