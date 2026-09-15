@@ -43,6 +43,7 @@ func (s *Server) Handler() http.Handler {
 		api.GET("/search", s.searchTasks)
 		api.POST("/subtitles/prepare", s.prepareSubtitles)
 		api.POST("/subtitles/export", s.exportSubtitles)
+		api.GET("/subtitles/presets", s.listSubtitlePresets)
 		if s.mcpHandler != nil {
 			// MCP Streamable HTTP：GET(SSE)/POST/DELETE 全由 handler 处理，不套 JSON 包络
 			api.Any("/mcp", gin.WrapH(s.mcpHandler))
@@ -347,6 +348,12 @@ func (s *Server) listVoices(c *gin.Context) {
 }
 
 // ---- 字幕工坊（本地能力：纯 Go 解析/分句/导出，零上游 API 成本）----
+
+// listSubtitlePresets 字幕样式预设：单一事实来源（internal/subtitle.Presets），
+// 前端预览与导出参数都以此为准，避免两处颜色定义漂移。
+func (s *Server) listSubtitlePresets(c *gin.Context) {
+	ok(c, subtitle.Presets)
+}
 
 // searchTasks 转写全文搜索：LIKE 粗筛候选任务，解析 summary 后按分句/总结文本
 // 精确命中提取片段（含时间戳，前端可跳到对应同步回放位置）。

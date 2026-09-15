@@ -19,14 +19,39 @@ import {
   useToast,
 } from "../ui";
 
-/** 与后端 internal/subtitle.Segment 对齐 */
+/** 与后端 internal/subtitle.Segment / subtitle.Style 对齐 */
 interface SubSeg {
   text: string;
   start_ms: number;
   end_ms: number;
 }
 
-const PRESETS = ["琥珀", "经典白", "信号绿", "天蓝"];
+interface PresetStyle {
+  name: string;
+  font_name: string;
+  font_size: number;
+  bold: boolean;
+  primary: string;
+  secondary: string;
+  outline: string;
+  outline_w: number;
+  margin_v: number;
+  karaoke: boolean;
+}
+
+/** 预设接口未返回时的兜底（与后端第一个预设「琥珀」一致） */
+const FALLBACK_STYLE: PresetStyle = {
+  name: "琥珀",
+  font_name: "Fira Sans",
+  font_size: 64,
+  bold: true,
+  primary: "#FF8A3D",
+  secondary: "#F0EAE2",
+  outline: "#141210",
+  outline_w: 2,
+  margin_v: 72,
+  karaoke: true,
+};
 
 function fmtClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -66,7 +91,7 @@ async function downloadExport(segs: SubSeg[], format: "srt" | "ass", style: Reco
 export default function SubtitlesPage() {
   const [source, setSource] = useState<"task" | "srt" | "text">("task");
   const [segments, setSegments] = useState<SubSeg[]>([]);
-  const [preset, setPreset] = useState(PRESETS[0]);
+  const [preset, setPreset] = useState(FALLBACK_STYLE.name);
   const [fontSize, setFontSize] = useState(64);
   const [marginV, setMarginV] = useState(72);
   const [karaoke, setKaraoke] = useState(true);
@@ -82,6 +107,22 @@ export default function SubtitlesPage() {
     queryKey: ["tasks", "subtitles"],
     queryFn: () => fetchJSON<{ items: import("../lib/types").Task[] }>("/api/tasks?size=100"),
   });
+  const presets = useQuery({
+    queryKey: ["subtitle-presets"],
+    queryFn: () => fetchJSON<PresetStyle[]>("/api/subtitles/presets"),
+    staleTime: Infinity,
+  });
+  // 当前生效样式：预设接口为单一事实来源（预览颜色/字重/导出覆盖均取自它）
+  const style = presets.data?.find((p) => p.name === preset) ?? presets.data?.[0] ?? FALLBACK_STYLE;
+  const applyPreset = (name: string) => {
+    setPreset(name);
+    const p = presets.data?.find((x) => x.name === name);
+    if (p) {
+      setFontSize(p.font_size);
+      setMarginV(p.margin_v);
+      setKaraoke(p.karaoke);
+    }
+  };
   const candidates = (tasks.data?.items ?? []).filter(
     (t) => t.status === "succeeded" && (t.tool === "asr" || t.tool === "minutes"),
   );
@@ -145,19 +186,20 @@ export default function SubtitlesPage() {
     );
   };
 
-  /* 预览：按 ASS PlayRes 1080p 等比缩放的近似渲染 */
+  /* 预览：按 ASS PlayRes 1080p 等比缩放的近似渲染，颜色/字重取自当前预设 */
   const previewSeg = segments.find((s) => s.text.trim() !== "");
   const scale = 0.34; // 预览容器 ≈ 720p 视觉
   const previewChars = previewSeg ? [...previewSeg.text.replace(/\n/g, "")] : [];
   const sungCount = Math.ceil(previewChars.length / 2);
   const previewLine = useMemo(() => {
     if (previewChars.length === 0) return null;
+    const shadow = `0 0 2px ${style.outline}, 1px 1px 0 ${style.outline}, -1px -1px 0 ${style.outline}, 1px -1px 0 ${style.outline}, -1px 1px 0 ${style.outline}`;
     return (
       <p
         className="m-0 whitespace-pre-wrap text-center leading-snug"
         style={{
           fontFamily: "var(--font-display, sans-serif)",
-          fontWeight: karaoke ? 600 : 400,
+          fontWeight: style.bold ? 600 : 400,
           fontSize: `${Math.max(13, Math.round(fontSize * scale * 0.5))}px`,
           marginBottom: `${Math.max(10, Math.round(marginV * scale * 0.5))}px`,
         }}
@@ -166,8 +208,9 @@ export default function SubtitlesPage() {
           <span
             key={i}
             style={{
-              color: karaoke && i < sungCount ? undefined : "#FFFFFF",
-              textShadow: "0 0 2px #141210, 1px 1px 0 #141210, -1px -1px 0 #141210, 1px -1px 0 #141210, -1px 1px 0 #141210",
+              // 卡拉 OK：已唱字用主色，未唱字用副色（与 ASS 的 Primary/Secondary 语义一致）
+              color: karaoke && i < sungCount ? style.primary : style.secondary,
+              textShadow: shadow,
             }}
           >
             {c}
@@ -176,7 +219,7 @@ export default function SubtitlesPage() {
       </p>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewSeg, fontSize, marginV, karaoke]);
+  }, [previewSeg, fontSize, marginV, karaoke, style]);
 
   return (
     <>
@@ -325,10 +368,10 @@ export default function SubtitlesPage() {
 
             <Field label="样式预设">
               {({ id, ...rest }) => (
-                <Select id={id} value={preset} onChange={(e) => setPreset(e.target.value)} {...rest}>
-                  {PRESETS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
+                <Select id={id} value={style.name} onChange={(e) => applyPreset(e.target.value)} {...rest}>
+                  {(presets.data ?? []).map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
                     </option>
                   ))}
                 </Select>
