@@ -17,7 +17,7 @@ type taskDTO struct {
 	Error     string          `json:"error,omitempty"`
 	CostMS    int64           `json:"cost_ms"`
 	Params    json.RawMessage `json:"params"`
-	Input     json.RawMessage `json:"input,omitempty"`  // 原始输入引用（file_ids/artifact_input），重跑与回放溯源
+	Input     json.RawMessage `json:"input,omitempty"`   // 原始输入引用（file_ids/artifact_input），重跑与回放溯源
 	Summary   json.RawMessage `json:"summary,omitempty"` // 任务完成摘要 JSON（ASR segments 等）
 	CreatedAt string          `json:"created_at"`
 }

@@ -141,7 +141,7 @@ func SplitSentences(text string) []string {
 }
 
 // DraftSegments 文稿转字幕草稿：各句按字符数占比在 durationMS 内顺序分配
-//（时长缺失时每句占 2s 占位，交由用户在编辑表里校准）。
+// （时长缺失时每句占 2s 占位，交由用户在编辑表里校准）。
 func DraftSegments(text string, durationMS int64) []Segment {
 	sentences := SplitSentences(text)
 	if len(sentences) == 0 {
@@ -186,12 +186,12 @@ type Style struct {
 	FontName  string `json:"font_name"`
 	FontSize  int    `json:"font_size"`
 	Bold      bool   `json:"bold"`
-	Primary   string `json:"primary"`    // 主色：非卡拉 OK 的字幕色 / 卡拉 OK 的「已唱」色
-	Secondary string `json:"secondary"`  // 卡拉 OK「未唱」基色
-	Outline   string `json:"outline"`    // 描边色
-	OutlineW  int    `json:"outline_w"`  // 描边宽度
-	MarginV   int    `json:"margin_v"`   // 垂直边距（底部对齐）
-	Karaoke   bool   `json:"karaoke"`    // 逐字卡拉 OK（行内均匀分布）
+	Primary   string `json:"primary"`   // 主色：非卡拉 OK 的字幕色 / 卡拉 OK 的「已唱」色
+	Secondary string `json:"secondary"` // 卡拉 OK「未唱」基色
+	Outline   string `json:"outline"`   // 描边色
+	OutlineW  int    `json:"outline_w"` // 描边宽度
+	MarginV   int    `json:"margin_v"`  // 垂直边距（底部对齐）
+	Karaoke   bool   `json:"karaoke"`   // 逐字卡拉 OK（行内均匀分布）
 }
 
 // Presets 内置样式预设。
@@ -230,7 +230,7 @@ func assText(text string) string {
 }
 
 // BuildASS 生成 ASS 文档。卡拉 OK 模式下每句按字符数均匀分配 \k 厘秒
-//（精确到字的时间需上游词级对齐，此处为观感近似）。
+// （精确到字的时间需上游词级对齐，此处为观感近似）。
 func BuildASS(segments []Segment, style Style) []byte {
 	var b strings.Builder
 	b.WriteString("[Script Info]\n")
