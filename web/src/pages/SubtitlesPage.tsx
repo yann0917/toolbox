@@ -208,8 +208,8 @@ export default function SubtitlesPage() {
           <span
             key={i}
             style={{
-              // 卡拉 OK：已唱字用主色，未唱字用副色（与 ASS 的 Primary/Secondary 语义一致）
-              color: karaoke && i < sungCount ? style.primary : style.secondary,
+              // ASS 语义：非卡拉 OK 字幕可见色=Primary；卡拉 OK 已唱=Primary、未唱=Secondary
+              color: karaoke ? (i < sungCount ? style.primary : style.secondary) : style.primary,
               textShadow: shadow,
             }}
           >
