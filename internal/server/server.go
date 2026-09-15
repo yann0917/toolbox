@@ -3,14 +3,16 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
 
 	"github.com/yann0917/toolbox/internal/service"
 	"github.com/yann0917/toolbox/internal/store"
 )
 
 type Server struct {
-	svc *service.Service
-	hub *Hub
+	svc        *service.Service
+	hub        *Hub
+	mcpHandler http.Handler // MCP Streamable HTTP 端点（serve 装配时可选挂载，须在 Handler() 之前）
 }
 
 func New(svc *service.Service) *Server {
@@ -18,6 +20,10 @@ func New(svc *service.Service) *Server {
 }
 
 func (s *Server) Hub() *Hub { return s.hub }
+
+// MountMCP 挂载 MCP Streamable HTTP 端点（路由 /api/mcp，All-methods）。
+// 必须在 Handler() 构建路由之前调用。
+func (s *Server) MountMCP(h http.Handler) { s.mcpHandler = h }
 
 // snapshotJSON 返回非终态任务快照消息。
 func (s *Server) snapshotJSON() []byte {

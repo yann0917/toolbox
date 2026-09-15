@@ -42,6 +42,10 @@ func (s *Server) Handler() http.Handler {
 		api.GET("/dicts", s.listDicts)
 		api.POST("/subtitles/prepare", s.prepareSubtitles)
 		api.POST("/subtitles/export", s.exportSubtitles)
+		if s.mcpHandler != nil {
+			// MCP Streamable HTTP：GET(SSE)/POST/DELETE 全由 handler 处理，不套 JSON 包络
+			api.Any("/mcp", gin.WrapH(s.mcpHandler))
+		}
 		api.GET("/ws", func(c *gin.Context) { s.hub.serveWS(c.Writer, c.Request, s.snapshotJSON) })
 	}
 	return r

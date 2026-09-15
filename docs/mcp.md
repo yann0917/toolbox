@@ -1,6 +1,9 @@
 # toolbox MCP Server
 
-`toolbox mcp` 以 Model Context Protocol（stdio）运行 toolbox，把全部语音能力直接暴露给 AI Agent——与 CLI、Web 控制台并列的第三个消费方。工具入参与 CLI 旗标同词表（snake_case），输出与 `--json` 同一契约（见 [json-contract.md](json-contract.md)）。
+toolbox 以 Model Context Protocol 把全部语音能力直接暴露给 AI Agent——与 CLI、Web 控制台并列的第三个消费方。两种传输，同一工具集、同一 JSON 契约：
+
+- **stdio**：`toolbox mcp`，客户端拉起子进程（本地客户端首选）；
+- **HTTP**：`toolbox serve` 内嵌 Streamable HTTP 端点 `/api/mcp`（适合无法拉起子进程的客户端）。工具入参与 CLI 旗标同词表（snake_case），输出与 `--json` 同一契约（见 [json-contract.md](json-contract.md)）。
 
 ## 接入配置
 
@@ -34,6 +37,24 @@
 | `toolbox_translate` | 32 语种翻译，`terms` 固定术语译法 | `text`, `to` | 秒级 |
 | `toolbox_minutes` | 音视频 URL → 结构化纪要（总结/待办/章节/翻译） | `url`, `features` | 分钟级 |
 | `toolbox_voices` | 音色查询（场景/语种/性别/关键词筛选） | — | 即时 |
+
+## HTTP 端点（serve 内嵌）
+
+`toolbox serve` 启动时同时在 **`http://127.0.0.1:<port>/api/mcp`** 暴露 Streamable HTTP 端点（与 Web 控制台同进程、同端口、共享同一任务引擎与数据目录）。客户端配置示例：
+
+```json
+{
+  "mcpServers": {
+    "toolbox": { "url": "http://127.0.0.1:8080/api/mcp" }
+  }
+}
+```
+
+注意：
+
+- 默认仅监听 `127.0.0.1`，与 `/api` 其余端点同一安全姿态（无独立鉴权）——**不要把该端口暴露到公网**，MCP 工具可触发计费云 API；
+- 工具调用与 stdio 模式同样**串行排队**执行；
+- `toolbox mcp`（stdio）与 HTTP 端点可同时使用，互不影响。
 
 ## 行为约定
 

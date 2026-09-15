@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"github.com/yann0917/toolbox/internal/config"
 	"github.com/yann0917/toolbox/internal/server"
@@ -36,6 +37,13 @@ func newServeCommand() *cobra.Command {
 			srv := server.New(svc)
 			svc.StartEngine(srv.Hub().Notify, 2)
 
+			// MCP Streamable HTTP 端点：与 Web 控制台同进程同端口（/api/mcp），
+			// 工具调用与 Web 任务共享同一引擎。仅监听 127.0.0.1，与 /api 其余端点同一安全姿态。
+			mcpSrv := newMCPServer(svc)
+			srv.MountMCP(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+				return mcpSrv
+			}, nil))
+
 			// 配置文件监听：服务运行中 CLI config set / 手工编辑 config.yaml 的凭证
 			// 变更热生效。失败仅降级告警，不阻断启动（Web 保存路径不依赖此监听）。
 			stopWatch, err := config.Watch(func(c *config.Config) {
@@ -51,6 +59,7 @@ func newServeCommand() *cobra.Command {
 			handler := server.WithStatic(srv.Handler(), webDist)
 			addr := fmt.Sprintf("127.0.0.1:%d", cfg.Server.Port)
 			fmt.Fprintf(os.Stderr, "toolbox Web 已启动: http://%s\n", addr)
+			fmt.Fprintf(os.Stderr, "MCP HTTP 端点: http://%s/api/mcp\n", addr)
 			return http.ListenAndServe(addr, handler)
 		},
 	}

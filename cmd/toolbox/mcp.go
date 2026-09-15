@@ -58,12 +58,16 @@ func runMCP(ctx context.Context) error {
 	}
 	defer svc.Close()
 	svc.StartEngine(nil, 2) // stdio 下进度事件无消费者，不订阅
-	runner := &mcpRunner{svc: svc}
-
-	server := mcp.NewServer(&mcp.Implementation{Name: "toolbox", Version: version}, nil)
-	addMCPTools(server, runner)
 	eprintf("toolbox MCP server 已就绪（stdio）\n")
-	return server.Run(ctx, &mcp.StdioTransport{})
+	return newMCPServer(svc).Run(ctx, &mcp.StdioTransport{})
+}
+
+// newMCPServer 组装 MCP Server（stdio 子进程与 serve 内嵌 HTTP 共用同一工具集）。
+// 任务经 mcpRunner 串行执行（防 SQLite 并发写），与 Web 任务共享同一引擎并发槽。
+func newMCPServer(svc *service.Service) *mcp.Server {
+	server := mcp.NewServer(&mcp.Implementation{Name: "toolbox", Version: version}, nil)
+	addMCPTools(server, &mcpRunner{svc: svc})
+	return server
 }
 
 func addMCPTools(server *mcp.Server, r *mcpRunner) {
@@ -401,10 +405,10 @@ type mcpTTSIn struct {
 }
 
 type mcpTTSLongIn struct {
-	Text          string `json:"text" jsonschema:"要合成的长文本（≤10 万字）"`
-	Voice         string `json:"voice,omitempty" jsonschema:"音色 ID，默认 zh_female_vv_uranus_bigtts（2.0/复刻音色）"`
-	Format        string `json:"format,omitempty" jsonschema:"音频格式: mp3|pcm|ogg_opus，默认 mp3"`
-	Timestamps    bool   `json:"timestamps,omitempty" jsonschema:"开启时间戳，额外产出 SRT 字幕"`
+	Text       string `json:"text" jsonschema:"要合成的长文本（≤10 万字）"`
+	Voice      string `json:"voice,omitempty" jsonschema:"音色 ID，默认 zh_female_vv_uranus_bigtts（2.0/复刻音色）"`
+	Format     string `json:"format,omitempty" jsonschema:"音频格式: mp3|pcm|ogg_opus，默认 mp3"`
+	Timestamps bool   `json:"timestamps,omitempty" jsonschema:"开启时间戳，额外产出 SRT 字幕"`
 	SharedTTSOpts
 	Out string `json:"out,omitempty" jsonschema:"产物输出绝对路径（缺省写入数据目录）"`
 }
