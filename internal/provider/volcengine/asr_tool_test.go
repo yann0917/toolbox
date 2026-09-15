@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -331,7 +332,7 @@ func TestASRToolFlashMode(t *testing.T) {
 	}
 }
 
-func TestASRToolIdleFlashRejectFile(t *testing.T) {
+func TestASRToolIdleFlashRejectFileWithoutStorage(t *testing.T) {
 	tool := newASRToolWithMockWS(t, []byte("audio"), "mp3")
 	audioFile := writeTestAudio(t, t.TempDir(), "sample.mp3", []byte("audio"))
 	for _, version := range []string{"idle", "flash"} {
@@ -339,9 +340,97 @@ func TestASRToolIdleFlashRejectFile(t *testing.T) {
 			Files:  map[string]string{"audio": audioFile},
 			Params: map[string]any{"version": version},
 		}, nopReport)
-		if err == nil || !strings.Contains(err.Error(), "仅支持") {
-			t.Fatalf("version=%s err = %v, 期望包含「仅支持」（参数错误退出码）", version, err)
+		if err == nil || !strings.Contains(err.Error(), "对象存储") {
+			t.Fatalf("version=%s err = %v, 期望提示配置对象存储", version, err)
 		}
+	}
+}
+
+// fakeStorage 桥接测试用假存储客户端：记录 Put 的 key/size，PresignGet 返回可断言的固定域名 URL。
+type fakeStorage struct {
+	mu       sync.Mutex
+	keys     []string
+	sizes    []int64
+	presignT time.Duration
+}
+
+func (f *fakeStorage) Put(_ context.Context, key, _ string, _ io.Reader, size int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keys, f.sizes = append(f.keys, key), append(f.sizes, size)
+	return nil
+}
+
+func (f *fakeStorage) PresignGet(key string, ttl time.Duration) (string, error) {
+	f.presignT = ttl
+	return "https://bucket.tos-cn-beijing.volces.com/" + key + "?X-Tos-Algorithm=fake", nil
+}
+
+func TestASRToolIdleFlashBridgesFileViaStorage(t *testing.T) {
+	var mu sync.Mutex
+	var audioURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Audio struct {
+				URL    string `json:"url"`
+				Format string `json:"format"`
+			} `json:"audio"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		audioURL = body.Audio.URL
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"result":{"text":"你好"},"audio_info":{"duration":1500}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	cred := SpeechCred{APIKey: "key-1"}
+	tool := &ASRTool{
+		ws:     NewASRClientWithURL(cred, "ws://127.0.0.1:1"),
+		auc:    NewASRAUCClientWithBaseURL(cred, srv.URL),
+		cred:   cred,
+		outDir: t.TempDir(),
+	}
+	audioFile := writeTestAudio(t, t.TempDir(), "sample.mp3", []byte("audio"))
+	st := &fakeStorage{}
+	out, err := tool.Run(context.Background(), provider.TaskInput{
+		Files:   map[string]string{"audio": audioFile},
+		Params:  map[string]any{"version": "flash"},
+		Storage: st,
+	}, nopReport)
+	if err != nil {
+		t.Fatalf("Run() err = %v", err)
+	}
+	if len(st.keys) != 1 || !strings.HasSuffix(st.keys[0], ".mp3") {
+		t.Fatalf("转存 key = %v, 期望保留 .mp3 扩展名", st.keys)
+	}
+	if !strings.HasPrefix(audioURL, "https://bucket.tos-cn-beijing.volces.com/") ||
+		!strings.HasSuffix(strings.Split(audioURL, "?")[0], ".mp3") {
+		t.Fatalf("提交上游的 URL = %q, 期望为转存签名 URL", audioURL)
+	}
+	if out.Summary["version"] != "flash" || out.Summary["source"] != "url" {
+		t.Fatalf("summary = %v", out.Summary)
+	}
+}
+
+func TestASRToolIdleFlashRejectsOversizeFileBeforeUpload(t *testing.T) {
+	tool := newASRToolWithMockWS(t, []byte("audio"), "mp3")
+	audioFile := writeTestAudio(t, t.TempDir(), "huge.mp3", []byte("audio"))
+	if err := os.WriteFile(audioFile, make([]byte, 101<<20), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &fakeStorage{}
+	_, err := tool.Run(context.Background(), provider.TaskInput{
+		Files:   map[string]string{"audio": audioFile},
+		Params:  map[string]any{"version": "flash"},
+		Storage: st,
+	}, nopReport)
+	if err == nil || !strings.Contains(err.Error(), "100MB") {
+		t.Fatalf("err = %v, 期望转存前拦截超限", err)
+	}
+	if len(st.keys) != 0 {
+		t.Fatalf("超限文件不应触发转存, keys = %v", st.keys)
 	}
 }
 

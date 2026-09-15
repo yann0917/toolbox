@@ -1,7 +1,19 @@
 // Package provider 定义平台无关的工具抽象：新平台实现 Tool 并注册即可接入。
 package provider
 
-import "context"
+import (
+	"context"
+	"io"
+	"time"
+)
+
+// StorageClient 对象存储最小通道：URL-only 工具（仅收公网 URL 的上游接口）把用户本地文件
+// 转存为可拉取地址的桥。由 internal/objectstorage 的实现满足，引擎经 TaskInput 注入；
+// nil 表示未配置对象存储，工具应回落「仅 URL」并给出配置指引。
+type StorageClient interface {
+	Put(ctx context.Context, key, contentType string, r io.Reader, size int64) error
+	PresignGet(key string, ttl time.Duration) (string, error)
+}
 
 type ParamType string
 
@@ -40,8 +52,9 @@ type ToolMeta struct {
 }
 
 type TaskInput struct {
-	Params map[string]any
-	Files  map[string]string
+	Params  map[string]any
+	Files   map[string]string
+	Storage StorageClient // 对象存储通道（可 nil）：本地文件 → 签名 URL 的桥
 }
 
 type Artifact struct {

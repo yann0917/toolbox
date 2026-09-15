@@ -47,7 +47,7 @@ func newServeCommand() *cobra.Command {
 			// 配置文件监听：服务运行中 CLI config set / 手工编辑 config.yaml 的凭证
 			// 变更热生效。失败仅降级告警，不阻断启动（Web 保存路径不依赖此监听）。
 			stopWatch, err := config.Watch(func(c *config.Config) {
-				svc.ReloadVolc(c)
+				svc.ReloadDiskConfig(c)
 				fmt.Fprintf(os.Stderr, "配置文件变更已热加载: %s\n", config.Path())
 			})
 			if err != nil {

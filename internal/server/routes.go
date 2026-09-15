@@ -38,6 +38,7 @@ func (s *Server) Handler() http.Handler {
 		api.GET("/settings", s.getSettings)
 		api.PUT("/settings", s.putSettings)
 		api.POST("/settings/test-connection", s.testConnection)
+		api.POST("/storage/lifecycle", s.applyStorageLifecycle)
 		api.GET("/voices", s.listVoices)
 		api.GET("/dicts", s.listDicts)
 		api.GET("/search", s.searchTasks)
@@ -304,6 +305,7 @@ func (s *Server) downloadArtifact(c *gin.Context) {
 
 func (s *Server) getSettings(c *gin.Context) {
 	cfg := s.svc.Config()
+	st := cfg.Storage
 	ok(c, gin.H{
 		"volc": gin.H{
 			"speech": gin.H{
@@ -312,6 +314,18 @@ func (s *Server) getSettings(c *gin.Context) {
 				"api_key":          cfg.Volc.Speech.APIKey,
 			},
 			"mediakit": gin.H{"has_api_key": cfg.Volc.MediaKit.APIKey != ""},
+		},
+		// secret_key 不回传（回传 has_secret_key 供设置页展示「已配置」）。
+		"storage": gin.H{
+			"provider":       st.Provider,
+			"endpoint":       st.Endpoint,
+			"region":         st.Region,
+			"bucket":         st.Bucket,
+			"access_key":     st.AccessKey,
+			"has_secret_key": st.SecretKey != "",
+			"prefix":         st.Prefix,
+			"lifecycle_days": st.LifecycleDays,
+			"enabled":        s.svc.StorageClient() != nil,
 		},
 		"data_dir": cfg.DataDir,
 	})
@@ -322,6 +336,20 @@ type putSettingsReq struct {
 	AccessToken    string `json:"access_token"`
 	APIKey         string `json:"api_key"`
 	MediaKitAPIKey string `json:"mediakit_api_key"`
+
+	// 对象存储段（可选提交；前端设置页整表提交，旧客户端不传即不改动）。
+	Storage *putStorageReq `json:"storage"`
+}
+
+type putStorageReq struct {
+	Provider      string `json:"provider"`
+	Endpoint      string `json:"endpoint"`
+	Region        string `json:"region"`
+	Bucket        string `json:"bucket"`
+	AccessKey     string `json:"access_key"`
+	SecretKey     string `json:"secret_key"` // 留空=不修改
+	Prefix        string `json:"prefix"`
+	LifecycleDays int    `json:"lifecycle_days"`
 }
 
 func (s *Server) putSettings(c *gin.Context) {
@@ -329,6 +357,22 @@ func (s *Server) putSettings(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, CodeBadRequest, "参数错误")
 		return
+	}
+	// 对象存储段先行校验持久化：失败时不改凭证，整表保存原子观感。
+	if req.Storage != nil {
+		if err := s.svc.SaveStorage(config.StorageConfig{
+			Provider:      req.Storage.Provider,
+			Endpoint:      req.Storage.Endpoint,
+			Region:        req.Storage.Region,
+			Bucket:        req.Storage.Bucket,
+			AccessKey:     req.Storage.AccessKey,
+			SecretKey:     req.Storage.SecretKey,
+			Prefix:        req.Storage.Prefix,
+			LifecycleDays: req.Storage.LifecycleDays,
+		}); err != nil {
+			fail(c, CodeBadRequest, err.Error())
+			return
+		}
 	}
 	// 持久化 + 热应用一体完成：内存配置换快照、工具实例按新凭证重注册，保存即生效。
 	if err := s.svc.SaveCredentials(req.AppID, req.AccessToken, req.APIKey, req.MediaKitAPIKey); err != nil {
@@ -340,9 +384,30 @@ func (s *Server) putSettings(c *gin.Context) {
 
 func (s *Server) testConnection(c *gin.Context) {
 	msg, connOK := s.svc.TestSpeechConnection()
-	// 顶层 ok/message 保持语音探测结果不变（向后兼容）；mediakit 段为 MediaKit 独立凭证探测。
+	// 顶层 ok/message 保持语音探测结果不变（向后兼容）；mediakit 段为 MediaKit 独立凭证探测；
+	// storage 段为对象存储探活（HeadBucket，不发数据请求不产生费用）。
 	mkMsg, mkOK := s.svc.TestMediaKitConnection()
-	ok(c, gin.H{"ok": connOK, "message": msg, "mediakit": gin.H{"ok": mkOK, "message": mkMsg}})
+	stMsg, stOK := s.svc.TestStorageConnection()
+	ok(c, gin.H{
+		"ok": connOK, "message": msg,
+		"mediakit": gin.H{"ok": mkOK, "message": mkMsg},
+		"storage":  gin.H{"ok": stOK, "message": stMsg},
+	})
+}
+
+// applyStorageLifecycle 应用对象存储生命周期规则（默认取配置的天数，如 3 天自动清理）。
+// 请求体可省略；{"days": 0} 同样表示按配置值。
+func (s *Server) applyStorageLifecycle(c *gin.Context) {
+	var req struct {
+		Days int `json:"days"`
+	}
+	_ = c.ShouldBindJSON(&req) // 空请求体合法
+	msg, err := s.svc.ApplyStorageLifecycle(req.Days)
+	if err != nil {
+		fail(c, CodeBadRequest, err.Error())
+		return
+	}
+	ok(c, gin.H{"ok": true, "message": msg})
 }
 
 func (s *Server) listVoices(c *gin.Context) {

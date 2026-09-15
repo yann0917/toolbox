@@ -15,12 +15,14 @@ import {
 import { Link } from "react-router-dom";
 import { apiBase, fetchJSON } from "../lib/api";
 import type { TaskDetail, TaskStatus } from "../lib/types";
+import { useStorageEnabled } from "../lib/useStorageEnabled";
 import { useTaskEvents } from "../lib/ws";
 import { useTranscriptSync } from "../lib/useTranscriptSync";
 import { resolvePlaySrc } from "../lib/playback";
 import { TranscriptList } from "../components/TranscriptList";
 import { ArtifactRow } from "../components/ArtifactRow";
 import { DictFill } from "../components/DictFill";
+import { FileDrop } from "../components/FileDrop";
 import { MINUTES_PRICE, PRICE_SNAPSHOT_DATE } from "../lib/pricing";
 import {
   Button,
@@ -36,6 +38,7 @@ import {
   Select,
   Skeleton,
   StatusBadge,
+  Tabs,
   WavePlayer,
   useToast,
 } from "../ui";
@@ -68,7 +71,10 @@ interface Run {
 }
 
 export default function MinutesPage() {
+  const [mode, setMode] = useState<"url" | "upload">("url");
   const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState("");
   const [features, setFeatures] = useState<string[]>(["summary"]);
   const [sourceLang, setSourceLang] = useState("zh_cn");
   const [targetLang, setTargetLang] = useState("en_us");
@@ -90,6 +96,28 @@ export default function MinutesPage() {
   const focusUrl = () => urlRef.current?.querySelector("input")?.focus();
   const { toast } = useToast();
   const ev = useTaskEvents();
+  const { enabled: storageEnabled } = useStorageEnabled();
+
+  /** 本地上传通道接受的音视频扩展名（官方音频 MP3/WAV/AAC/FLAC/OGG + 视频 MP4/AVI/MKV/MOV/FLV/WMV，m4a 归音频） */
+  const MINUTES_EXTS = ["mp3", "wav", "aac", "flac", "ogg", "m4a", "mp4", "avi", "mkv", "mov", "flv", "wmv"];
+  const pickFile = (f: File | null) => {
+    if (!f) {
+      setFile(null);
+      setFileError("");
+      return;
+    }
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!MINUTES_EXTS.includes(ext)) {
+      setFileError(`不支持的格式 .${ext || "未知"}：音频 MP3/WAV/AAC/FLAC/OGG，视频 MP4/AVI/MKV/MOV/FLV/WMV`);
+      return;
+    }
+    if (f.size >= 1024 * 1024 * 1024) {
+      setFileError("文件需小于 1GB（妙记上游限制）");
+      return;
+    }
+    setFileError("");
+    setFile(f);
+  };
 
   /* WS 事件驱动进度；终态回读任务详情取纪要结果 */
   useEffect(() => {
@@ -125,23 +153,26 @@ export default function MinutesPage() {
   };
 
   const submit = useMutation({
-    mutationFn: () =>
-      fetchJSON<{ task_id: string }>("/api/tasks", {
-        method: "POST",
-        body: JSON.stringify({
-          provider: "volcengine",
-          tool: "minutes",
-          params: {
-            url,
-            features: features.join(","),
-            source_lang: sourceLang,
-            target_lang: targetLang,
-            speakers,
-            hotwords,
-            all_activate: allActivate,
-          },
-        }),
-      }),
+    mutationFn: async () => {
+      const params: Record<string, unknown> = {
+        url: mode === "url" ? url : "",
+        features: features.join(","),
+        source_lang: sourceLang,
+        target_lang: targetLang,
+        speakers,
+        hotwords,
+        all_activate: allActivate,
+      };
+      const body: Record<string, unknown> = { provider: "volcengine", tool: "minutes", params };
+      if (mode === "upload") {
+        // 本地上传：先拿 file_id，任务执行期由服务端转存对象存储换取签名 URL
+        const fd = new FormData();
+        fd.append("file", file!);
+        const up = await fetchJSON<{ file_id: string }>("/api/uploads", { method: "POST", body: fd, headers: {} });
+        body.file_ids = [up.file_id];
+      }
+      return fetchJSON<{ task_id: string }>("/api/tasks", { method: "POST", body: JSON.stringify(body) });
+    },
     onSuccess: (d) => {
       setTaskId(d.task_id);
       setRun({ status: "pending", progress: 0, note: "已提交" });
@@ -155,7 +186,8 @@ export default function MinutesPage() {
   });
 
   const urlValid = /^https?:\/\//i.test(url.trim());
-  const canSubmit = urlValid && features.length > 0;
+  const canSubmit =
+    features.length > 0 && (mode === "url" ? urlValid : !!file);
 
   /** 导出：组装在服务端（模板单一事实来源），markdown 供复制/下载，docx 供 Word 打开 */
   const fetchExport = async (format: "markdown" | "docx") => {
@@ -223,7 +255,7 @@ export default function MinutesPage() {
     <>
       <PageHeader
         title="语音妙记"
-        description="音视频 URL 转结构化纪要：转写+说话人、总结、待办、章节、翻译（≤2 小时、<1G，需公网 URL）"
+        description="音视频转结构化纪要：转写+说话人、总结、待办、章节、翻译（≤2 小时、<1G，公网 URL 或本地文件）"
         icon={<NotebookPen size={16} strokeWidth={1.75} />}
         actions={
           <Link
@@ -241,26 +273,55 @@ export default function MinutesPage() {
         <Card className="min-w-0">
           <CardHeader title="音视频输入" icon={<NotebookPen size={15} strokeWidth={1.75} />} />
           <CardBody className="space-y-3">
-            <div ref={urlRef}>
-              <Field
-                label="音视频 URL"
-                hint="公网可访问地址（音频 MP3/WAV/AAC/FLAC/OGG，视频 MP4/AVI/MKV/MOV/FLV/WMV）；本地文件请先上传至对象存储。"
-                error={url.trim() !== "" && !urlValid ? "请输入 http(s):// 开头的公网 URL" : undefined}
-              >
-                {({ id, ...rest }) => (
-                  <Input
-                    id={id}
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://example.com/meeting.mp4"
-                    {...rest}
-                  />
-                )}
-              </Field>
-            </div>
+            <Tabs<"url" | "upload">
+              items={
+                storageEnabled
+                  ? [
+                      { value: "url" as const, label: "音视频 URL" },
+                      { value: "upload" as const, label: "本地上传" },
+                    ]
+                  : [{ value: "url" as const, label: "音视频 URL" }]
+              }
+              value={mode}
+              onChange={setMode}
+            />
+
+            {mode === "upload" ? (
+              <div className="space-y-2">
+                <FileDrop
+                  file={file}
+                  onFile={pickFile}
+                  accept={MINUTES_EXTS.map((e) => `.${e}`).join(",")}
+                  label="选择或拖入音视频文件"
+                  emptyHint="音频 MP3/WAV/AAC/FLAC/OGG，视频 MP4/AVI/MKV/MOV/FLV/WMV；<1G、≤2 小时"
+                  error={fileError}
+                />
+                <p className="text-[11px] text-muted">
+                  提交时文件先上传到本服务，再转存对象存储取签名 URL 供妙记拉取（默认 3 天自动清理）；「处理进度」会显示转存状态。
+                </p>
+              </div>
+            ) : (
+              <div ref={urlRef}>
+                <Field
+                  label="音视频 URL"
+                  hint="公网可访问地址（音频 MP3/WAV/AAC/FLAC/OGG，视频 MP4/AVI/MKV/MOV/FLV/WMV）；本地文件请切换到「本地上传」（需在设置页启用对象存储）。"
+                  error={url.trim() !== "" && !urlValid ? "请输入 http(s):// 开头的公网 URL" : undefined}
+                >
+                  {({ id, ...rest }) => (
+                    <Input
+                      id={id}
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      placeholder="https://example.com/meeting.mp4"
+                      {...rest}
+                    />
+                  )}
+                </Field>
+              </div>
+            )}
             <p className="text-[11px] leading-relaxed text-muted">
               妙记与 ASR 的区别：ASR 只做转写（本地文件可直发）；妙记额外生成说话人分离、总结、待办、章节等结构化纪要，
-              但仅收 URL，按小时计费（转写 1.8 元/小时 + 结构费），适合会议/访谈/讲座。同量对比见
+              按小时计费（转写 1.8 元/小时 + 结构费），适合会议/访谈/讲座。同量对比见
               <Link to="/pricing" className="mx-0.5 text-accent transition-colors duration-150 hover:opacity-80">
                 计费测算
               </Link>
@@ -402,10 +463,10 @@ export default function MinutesPage() {
           <EmptyState
             icon={<NotebookPen size={18} strokeWidth={1.75} />}
             title="还没有妙记任务"
-            description="粘贴音视频公网 URL、选择附加功能后提交，转写、总结、待办与章节会出现在这里。"
+            description="粘贴音视频公网 URL 或上传本地文件、选择附加功能后提交，转写、总结、待办与章节会出现在这里。"
             action={
               <Button variant="secondary" size="sm" onClick={focusUrl}>
-                去输入 URL
+                去输入音视频
               </Button>
             }
           />

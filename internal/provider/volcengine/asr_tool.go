@@ -123,7 +123,7 @@ func (t *ASRTool) ParamSpecs() []provider.ParamSpec {
 				{Value: asrVersionFlash, Label: "极速版（URL，秒级返回）"},
 			}},
 		{Key: "url", Label: "音频 URL", Type: provider.ParamString,
-			Placeholder: "公网音频 URL，标准/闲时/极速版使用", Group: "输入"},
+			Placeholder: "公网音频 URL，标准/闲时/极速版使用；留空可配合本地文件（需配置对象存储）", Group: "输入"},
 		{Key: "hotwords", Label: "热词", Type: provider.ParamString,
 			Placeholder: "逗号分隔热词", Group: "输入"},
 		{Key: "language", Label: "语言", Type: provider.ParamEnum, Default: "", Group: "输入",
@@ -139,27 +139,31 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 	// 不应被凭证校验（退出码 4）掩盖。
 	version := asrNormalizeVersion(paramString(in.Params, "version"))
 	audioPath := in.Files["audio"]
-	audioURL := paramString(in.Params, "url")
+	audioURL := strings.TrimSpace(paramString(in.Params, "url"))
 	if audioPath == "" && audioURL == "" {
 		return provider.TaskOutput{}, fmt.Errorf("缺少输入：请上传音频文件或提供音频 URL")
 	}
-	// 一句话版只吃本地文件（sauc WS 协议传音频字节）；
-	// 旧参数 standard+本地文件的组合自动按一句话识别处理（标准版语义已改为仅 URL，兼容历史任务重跑）。
+	// 一句话版只吃本地文件（sauc WS 协议传音频字节）；旧参数 standard+本地文件的组合
+	// 自动按一句话识别处理（兼容历史任务重跑）；闲时/极速版协议只收 audio.url
+	//（6561/2608618、6561/2608628）：URL 直用，本地文件经对象存储中转（ensureURLInput）。
 	if version == asrVersionSentence && audioPath == "" {
 		return provider.TaskOutput{}, fmt.Errorf("一句话识别仅支持本地上传音频文件，URL 请使用标准版/闲时版/极速版")
 	}
-	if version != asrVersionSentence && audioPath != "" {
-		switch version {
-		case asrVersionStandard:
-			version = asrVersionSentence
-		default: // 闲时/极速协议只收 audio.url（6561/2608618、6561/2608628）
-			return provider.TaskOutput{}, fmt.Errorf("闲时版/极速版仅支持音频 URL 输入，本地文件请使用一句话识别")
-		}
+	localSync := version == asrVersionSentence
+	if version == asrVersionStandard && audioPath != "" {
+		version = asrVersionSentence // 旧参数组合：标准版+文件 → 一句话同步
+		localSync = true
 	}
 	var format string
-	if audioPath != "" {
+	if localSync && audioPath != "" {
 		var err error
 		if format, err = audioFormatOf(audioPath); err != nil {
+			return provider.TaskOutput{}, err
+		}
+	}
+	if !localSync && audioPath != "" {
+		// 转存前先拦格式与大小，省一次注定失败的上传（上限对齐官方：极速 100MB/2h、闲时 512MB/5h）。
+		if err := checkURLFileForBridge(audioPath, version); err != nil {
 			return provider.TaskOutput{}, err
 		}
 	}
@@ -172,7 +176,7 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 		source string
 	)
 	switch {
-	case audioPath != "": // 一句话识别：本地文件 WS 同步（旧 standard+文件参数已自动归入本分支）
+	case localSync: // 一句话识别：本地文件 WS 同步（旧 standard+文件参数已自动归入本分支）
 		source = "file"
 		audio, err := os.ReadFile(audioPath)
 		if err != nil {
@@ -188,8 +192,13 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 		if err != nil {
 			return provider.TaskOutput{}, err
 		}
-	case version == asrVersionIdle: // 闲时版：submit + 长周期轮询（任务通常 24h 内完成）
+	case version == asrVersionIdle: // 闲时版：URL 直用 / 本地文件转存，submit + 长周期轮询（任务通常 24h 内完成）
 		source = "url"
+		audioURL, err := ensureURLInput(ctx, in, "url", "音频",
+			"缺少输入：闲时版需要音频 URL 或本地文件（对象存储中转）", report)
+		if err != nil {
+			return provider.TaskOutput{}, err
+		}
 		req, err := idleFlashRequest(audioURL,
 			paramString(in.Params, "language"), paramString(in.Params, "hotwords"))
 		if err != nil {
@@ -212,8 +221,13 @@ func (t *ASRTool) Run(ctx context.Context, in provider.TaskInput, report provide
 		if err != nil {
 			return provider.TaskOutput{}, err
 		}
-	case version == asrVersionFlash: // 极速版：同步返回，无需轮询
+	case version == asrVersionFlash: // 极速版：URL 直用 / 本地文件转存，同步返回无需轮询
 		source = "url"
+		audioURL, err := ensureURLInput(ctx, in, "url", "音频",
+			"缺少输入：极速版需要音频 URL 或本地文件（对象存储中转）", report)
+		if err != nil {
+			return provider.TaskOutput{}, err
+		}
 		req, err := idleFlashRequest(audioURL,
 			paramString(in.Params, "language"), paramString(in.Params, "hotwords"))
 		if err != nil {
@@ -354,6 +368,31 @@ func (t *ASRTool) saveArtifacts(in provider.TaskInput, resp ASRNostreamResp, sou
 			"version":     version,
 		},
 	}, nil
+}
+
+// checkURLFileForBridge 闲时/极速版本地文件转存前置校验：扩展名与官方 URL 格式白名单一致
+// （转存后格式由 URL 扩展名推断），大小对齐官方上限——超限在转存前拦截，不白传大文件。
+func checkURLFileForBridge(path, version string) error {
+	switch ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")); ext {
+	case "wav", "mp3", "ogg", "spx", "amr", "aac", "m4a":
+	default:
+		return fmt.Errorf("闲时版/极速版不支持该音频格式 .%s（支持 wav/mp3/ogg/spx/amr/aac/m4a）", ext)
+	}
+	const (
+		flashMaxBytes = 100 << 20 // 极速版 ≤100MB / 2h
+		idleMaxBytes  = 512 << 20 // 闲时版 ≤512MB / 5h
+	)
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("读取音频文件失败: %w", err)
+	}
+	if version == asrVersionFlash && fi.Size() > flashMaxBytes {
+		return fmt.Errorf("极速版仅支持 100MB 内音频（当前 %.0fMB），请使用闲时版或压缩后重试", float64(fi.Size())/1024/1024)
+	}
+	if fi.Size() > idleMaxBytes {
+		return fmt.Errorf("闲时版仅支持 512MB 内音频（当前 %.0fMB）", float64(fi.Size())/1024/1024)
+	}
+	return nil
 }
 
 // idleFlashRequest 组装闲时版/极速版提交请求：format 必填、由 URL 扩展名推断；

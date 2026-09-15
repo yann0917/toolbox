@@ -4,7 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { Download, SplitSquareHorizontal, Waves } from "lucide-react";
 import { apiBase, fetchJSON } from "../lib/api";
 import type { TaskStatus } from "../lib/types";
+import { useStorageEnabled } from "../lib/useStorageEnabled";
 import { useTaskEvents } from "../lib/ws";
+import { FileDrop } from "../components/FileDrop";
 import {
   Button,
   Card,
@@ -17,6 +19,7 @@ import {
   ProgressBar,
   Select,
   StatusBadge,
+  Tabs,
   WavePlayer,
   useToast,
 } from "../ui";
@@ -58,6 +61,9 @@ const trackLabel = (t?: string) => (t ? TRACK_LABELS[t] ?? t : "音轨");
 /** 语音识别仅接受 mp3/wav，其他格式不提供「送 ASR」入口 */
 const asrCompatible = (fmt?: string) => fmt === "mp3" || fmt === "wav";
 
+/** 本地上传通道接受的音视频扩展名（MediaKit 按扩展名分流 audio_url/video_url） */
+const SEP_ACCEPT = ".mp3,.wav,.flac,.m4a,.aac,.ogg,.mp4,.mov,.avi,.mkv,.webm";
+
 function formatSize(bytes?: number): string {
   if (!bytes) return "—";
   if (bytes < 1024) return `${bytes} B`;
@@ -66,7 +72,10 @@ function formatSize(bytes?: number): string {
 }
 
 export default function SeparatePage() {
+  const [mode, setMode] = useState<"url" | "upload">("url");
   const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState("");
   const [scene, setScene] = useState("Audio");
   const [format, setFormat] = useState("mp3");
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -77,6 +86,7 @@ export default function SeparatePage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const ev = useTaskEvents();
+  const { enabled: storageEnabled } = useStorageEnabled();
 
   // WS 事件驱动进度；终态拉详情取每轨产物与 summary
   useEffect(() => {
@@ -98,16 +108,39 @@ export default function SeparatePage() {
     }
   }, [ev, taskId, toast]);
 
+  /** 本地文件扩展名校验（与 SEP_ACCEPT、后端 MediaKit 分流一致） */
+  const SEP_EXTS = ["mp3", "wav", "flac", "m4a", "aac", "ogg", "mp4", "mov", "avi", "mkv", "webm"];
+  const pickFile = (f: File | null) => {
+    if (!f) {
+      setFile(null);
+      setFileError("");
+      return;
+    }
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!SEP_EXTS.includes(ext)) {
+      setFileError(`不支持的格式 .${ext || "未知"}：请选择常见音频/视频文件`);
+      return;
+    }
+    setFileError("");
+    setFile(f);
+  };
+
   const submit = useMutation({
-    mutationFn: () =>
-      fetchJSON<{ task_id: string }>("/api/tasks", {
-        method: "POST",
-        body: JSON.stringify({
-          provider: "volcengine",
-          tool: "separate",
-          params: { url: url.trim(), scene, output_format: format },
-        }),
-      }),
+    mutationFn: async () => {
+      const body: Record<string, unknown> = {
+        provider: "volcengine",
+        tool: "separate",
+        params: { url: mode === "url" ? url.trim() : "", scene, output_format: format },
+      };
+      if (mode === "upload") {
+        // 本地上传：先拿 file_id，任务执行期由服务端转存对象存储换取签名 URL
+        const fd = new FormData();
+        fd.append("file", file!);
+        const up = await fetchJSON<{ file_id: string }>("/api/uploads", { method: "POST", body: fd, headers: {} });
+        body.file_ids = [up.file_id];
+      }
+      return fetchJSON<{ task_id: string }>("/api/tasks", { method: "POST", body: JSON.stringify(body) });
+    },
     onSuccess: (d) => {
       setTaskId(d.task_id);
       setTask({ id: d.task_id, status: "pending", progress: 0, progress_note: "已提交" });
@@ -118,32 +151,62 @@ export default function SeparatePage() {
   });
 
   const running = task?.status === "running" || task?.status === "pending";
+  const canSubmit = running ? false : mode === "url" ? !!url.trim() : !!file;
 
   return (
     <>
       <PageHeader
         title="人声分离"
-        description="从公网音视频中分离人声与背景音（AI MediaKit，独立凭证）"
+        description="从音视频中分离人声与背景音（AI MediaKit，独立凭证）：公网 URL 或本地文件"
       />
 
       <Card>
         <CardHeader title="输入与参数" icon={<Waves size={15} strokeWidth={1.75} />} />
         <CardBody className="space-y-5">
-          <Field
-            label="音视频 URL"
-            required
-            hint="MediaKit 仅接受公网可访问地址；本地文件请先上传至对象存储（或火山 TOS）。"
-          >
-            {({ id, ...rest }) => (
-              <Input
-                id={id}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://example.com/media.mp4"
-                {...rest}
+          <Tabs<"url" | "upload">
+            items={
+              storageEnabled
+                ? [
+                    { value: "url" as const, label: "音视频 URL" },
+                    { value: "upload" as const, label: "本地上传" },
+                  ]
+                : [{ value: "url" as const, label: "音视频 URL" }]
+            }
+            value={mode}
+            onChange={setMode}
+          />
+
+          {mode === "upload" ? (
+            <div className="space-y-2">
+              <FileDrop
+                file={file}
+                onFile={pickFile}
+                accept={SEP_ACCEPT}
+                label="选择或拖入音视频文件"
+                emptyHint="音频/视频均可；提交后自动经对象存储中转（默认 3 天自动清理）"
+                error={fileError}
               />
-            )}
-          </Field>
+              <p className="text-[11px] text-muted">
+                提交时文件先上传到本服务，再转存对象存储取签名 URL 供 MediaKit 拉取；「处理进度」会显示转存状态。
+              </p>
+            </div>
+          ) : (
+            <Field
+              label="音视频 URL"
+              required
+              hint="MediaKit 仅接受公网可访问地址；本地文件请切换到「本地上传」（需在设置页启用对象存储）。"
+            >
+              {({ id, ...rest }) => (
+                <Input
+                  id={id}
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://example.com/media.mp4"
+                  {...rest}
+                />
+              )}
+            </Field>
+          )}
 
           <div className="space-y-2">
             <span className="micro">分离场景</span>
@@ -190,7 +253,7 @@ export default function SeparatePage() {
                 variant="primary"
                 className="w-full"
                 loading={submit.isPending}
-                disabled={!url.trim() || running}
+                disabled={!canSubmit}
                 onClick={() => submit.mutate()}
                 icon={<SplitSquareHorizontal size={14} strokeWidth={1.75} />}
               >
@@ -301,7 +364,7 @@ export default function SeparatePage() {
           <EmptyState
             icon={<Waves size={18} strokeWidth={1.75} />}
             title="还没有分离结果"
-            description="填入公网音视频地址、选择场景后点击「开始分离」，双轨或三轨音频会出现在这里，可试听、下载，人声轨可一键送语音识别。"
+            description="填入公网音视频地址或上传本地文件、选择场景后点击「开始分离」，双轨或三轨音频会出现在这里，可试听、下载，人声轨可一键送语音识别。"
           />
         </Card>
       )}

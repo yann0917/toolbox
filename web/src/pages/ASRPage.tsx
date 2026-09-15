@@ -19,6 +19,7 @@ import {
 import { apiBase, fetchJSON } from "../lib/api";
 import { formatTime } from "../lib/player";
 import type { Artifact, TaskDetail, TaskStatus } from "../lib/types";
+import { useStorageEnabled } from "../lib/useStorageEnabled";
 import { useTaskEvents } from "../lib/ws";
 import { useTranscriptSync } from "../lib/useTranscriptSync";
 import { recordingSupported, startRecording, type RecordingSession } from "../lib/recorder";
@@ -43,9 +44,12 @@ import {
   useToast,
 } from "../ui";
 
-/** 音频格式白名单与后端 ASR Tool 一致（mp3/wav/ogg/pcm） */
-const ACCEPT = ".mp3,.wav,.ogg,.pcm";
-const ALLOWED_EXT = ["mp3", "wav", "ogg", "pcm"];
+/** 音频扩展名白名单（与后端一致）：一句话版 mp3/wav/ogg/pcm；闲时/极速版（URL 格式白名单）更宽 */
+const SENTENCE_EXTS = ["mp3", "wav", "ogg", "pcm"];
+const URL_VERSION_EXTS = ["wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"];
+const ACCEPT_ALL = [...new Set([...SENTENCE_EXTS, ...URL_VERSION_EXTS])]
+  .map((e) => `.${e}`)
+  .join(",");
 
 type Mode = "upload" | "url" | "recording";
 /** 识别版本：sentence 一句话识别（本地文件，单向流式大模型同步）；standard/idle/flash 录音文件识别（仅 URL） */
@@ -155,6 +159,11 @@ export default function ASRPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const ev = useTaskEvents();
+  const { enabled: storageEnabled } = useStorageEnabled();
+
+  /* 当前版本的本地上传白名单与上限：sentence 直发 mp3/wav/ogg/pcm；
+     闲时/极速版经对象存储中转，格式白名单与 URL 一致；极速版另有 100MB 上限（转存前拦截）。 */
+  const allowedExts = version === "sentence" ? SENTENCE_EXTS : URL_VERSION_EXTS;
 
   /* WS 事件驱动当前任务进度；终态拉详情拿产物与 summary.segments */
   useEffect(() => {
@@ -202,16 +211,21 @@ export default function ASRPage() {
         ? formatSize(file.size)
         : undefined;
 
-  /** 切换识别版本：一句话版吃本地文件（上传/录音），其余版本仅收 URL。 */
+  /** 切换识别版本：一句话版吃本地文件（上传/录音）；闲时/极速版在配置对象存储后也开放本地上传。
+      版本间扩展名白名单不同，切换时清空已选文件避免带非法格式提交。 */
   const changeVersion = (v: ASRVersion) => {
     setVersion(v);
     setFileError("");
+    setFile(null);
     if (v === "sentence") {
       setMode((m) => (m === "url" ? "upload" : m));
-    } else {
-      if (recState === "recording") discardRec();
+      return;
+    }
+    if (recState === "recording") discardRec();
+    if (v === "standard" || !storageEnabled) {
       setMode("url");
     }
+    // 闲时/极速版 + 已配置存储：保持当前 upload/url 通道
   };
 
   const submit = useMutation({
@@ -275,8 +289,16 @@ export default function ASRPage() {
 
   const pickFile = (f: File) => {
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!ALLOWED_EXT.includes(ext)) {
-      setFileError(`不支持的格式 .${ext || "未知"}：仅支持 mp3 / wav / ogg / pcm`);
+    if (!allowedExts.includes(ext)) {
+      setFileError(
+        version === "sentence"
+          ? `不支持的格式 .${ext || "未知"}：仅支持 mp3 / wav / ogg / pcm`
+          : `不支持的格式 .${ext || "未知"}：闲时/极速版支持 wav / mp3 / ogg / spx / amr / aac / m4a`,
+      );
+      return;
+    }
+    if (version === "flash" && f.size > 100 * 1024 * 1024) {
+      setFileError(`极速版仅支持 100MB 内音频（当前 ${(f.size / 1024 / 1024).toFixed(0)}MB）`);
       return;
     }
     setFileError("");
@@ -438,7 +460,12 @@ export default function ASRPage() {
                           { value: "upload" as const, label: "本地上传", icon: <Upload size={13} strokeWidth={1.75} /> },
                           { value: "recording" as const, label: "麦克风录音", icon: <Mic size={13} strokeWidth={1.75} /> },
                         ]
-                      : [{ value: "url" as const, label: "音频 URL", icon: <Link2 size={13} strokeWidth={1.75} /> }]
+                      : version === "standard" || !storageEnabled
+                        ? [{ value: "url" as const, label: "音频 URL", icon: <Link2 size={13} strokeWidth={1.75} /> }]
+                        : [
+                            { value: "url" as const, label: "音频 URL", icon: <Link2 size={13} strokeWidth={1.75} /> },
+                            { value: "upload" as const, label: "本地上传", icon: <Upload size={13} strokeWidth={1.75} /> },
+                          ]
                   }
                   value={mode}
                   onChange={(m) => {
@@ -481,13 +508,17 @@ export default function ASRPage() {
                       ) : (
                         <>
                           <p className="text-sm text-fg-2">拖拽音频到此处，或点击选择文件</p>
-                          <p className="text-[11px] text-muted">支持 mp3 / wav / ogg / pcm</p>
+                          <p className="text-[11px] text-muted">
+                            {version === "sentence"
+                              ? "支持 mp3 / wav / ogg / pcm"
+                              : "支持 wav / mp3 / ogg / spx / amr / aac / m4a；提交后自动经对象存储中转（默认 3 天清理）"}
+                          </p>
                         </>
                       )}
                       <input
                         ref={fileInputRef}
                         type="file"
-                        accept={ACCEPT}
+                        accept={ACCEPT_ALL}
                         aria-label="选择要识别的音频文件"
                         className="hidden"
                         onChange={(e) => {

@@ -26,7 +26,7 @@ var (
 )
 
 // MinutesTool 语音妙记工具：音视频转结构化纪要（转写+说话人、全文总结、
-// 待办/问答提取、章节总结、中英翻译）。仅收公网 URL（<1G、≤2h），本地文件请先上传。
+// 待办/问答提取、章节总结、中英翻译）。收公网 URL 或本地文件（对象存储中转）（<1G、≤2h）。
 type MinutesTool struct {
 	client *LarkClient
 	cred   SpeechCred
@@ -60,8 +60,9 @@ var larkLangOptions = []provider.ParamOption{
 
 func (t *MinutesTool) ParamSpecs() []provider.ParamSpec {
 	return []provider.ParamSpec{
-		{Key: "url", Label: "音视频 URL", Type: provider.ParamString, Required: true,
-			Placeholder: "公网可访问的音视频 URL（<1G、≤2 小时，本地文件请先上传）", Group: "输入"},
+		// url 非必填：本地文件 + 对象存储中转时由任务运行期补齐（ensureURLInput）。
+		{Key: "url", Label: "音视频 URL", Type: provider.ParamString,
+			Placeholder: "公网可访问的音视频 URL；留空则使用上传的本地文件（需配置对象存储）", Group: "输入"},
 		{Key: "features", Label: "附加功能", Type: provider.ParamEnum, Default: "summary", Group: "功能",
 			Placeholder: "逗号分隔：summary 全文总结 / todo 待办 / qa 问答 / chapter 章节 / translation 翻译（至少一项）"},
 		{Key: "source_lang", Label: "源语种", Type: provider.ParamEnum,
@@ -79,10 +80,15 @@ func (t *MinutesTool) ParamSpecs() []provider.ParamSpec {
 }
 
 func (t *MinutesTool) Run(ctx context.Context, in provider.TaskInput, report provider.ProgressReporter) (provider.TaskOutput, error) {
-	// 参数校验先行（退出码 2），不被凭证校验（退出码 4）掩盖。
-	fileURL := strings.TrimSpace(paramString(in.Params, "url"))
-	if fileURL == "" {
-		return provider.TaskOutput{}, fmt.Errorf("缺少输入：请提供公网可访问的音视频 URL（妙记不支持本地文件）")
+	// 参数校验先行（退出码 2），不被凭证校验（退出码 4）掩盖；凭证校验先于文件转存
+	//（无凭证不白传大文件）。输入二选一：公网 URL，或本地文件（配置了对象存储时自动中转）。
+	hotwords := larkHotwordsJSON(paramString(in.Params, "hotwords"))
+	if hotwords == "" && paramString(in.Params, "hotwords") != "" {
+		return provider.TaskOutput{}, fmt.Errorf("热词格式错误：请提供逗号分隔的非空词表")
+	}
+	features, err := larkParseFeatures(paramString(in.Params, "features"))
+	if err != nil {
+		return provider.TaskOutput{}, err
 	}
 	sourceLang := paramString(in.Params, "source_lang")
 	if sourceLang == "" {
@@ -98,16 +104,13 @@ func (t *MinutesTool) Run(ctx context.Context, in provider.TaskInput, report pro
 	if targetLang != "zh_cn" && targetLang != "en_us" {
 		return provider.TaskOutput{}, fmt.Errorf("仅支持翻译目标语 zh_cn/en_us，收到 %q", targetLang)
 	}
-	hotwords := larkHotwordsJSON(paramString(in.Params, "hotwords"))
-	if hotwords == "" && paramString(in.Params, "hotwords") != "" {
-		return provider.TaskOutput{}, fmt.Errorf("热词格式错误：请提供逗号分隔的非空词表")
-	}
-	features, err := larkParseFeatures(paramString(in.Params, "features"))
-	if err != nil {
-		return provider.TaskOutput{}, err
-	}
 	// 妙记鉴权同语音三件套：新版 X-Api-Key 单键即可（demo 双头为兼容写法），通用校验足够。
 	if err := t.cred.Validate(); err != nil {
+		return provider.TaskOutput{}, err
+	}
+	fileURL, err := ensureURLInput(ctx, in, "url", "音视频",
+		"缺少输入：请提供公网可访问的音视频 URL（<1G、≤2 小时），或上传本地文件（需在设置页配置对象存储）", report)
+	if err != nil {
 		return provider.TaskOutput{}, err
 	}
 

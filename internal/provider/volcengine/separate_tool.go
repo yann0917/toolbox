@@ -40,15 +40,16 @@ func (t *SeparateTool) Meta() provider.ToolMeta {
 		Provider:    "volcengine",
 		Name:        "separate",
 		Title:       "人声背景音分离",
-		Description: "从音视频 URL 分离人声与背景音（AI MediaKit）",
+		Description: "从音视频分离人声与背景音（AI MediaKit）：公网 URL 或本地文件（对象存储中转）",
 		Group:       "语音",
 	}
 }
 
 func (t *SeparateTool) ParamSpecs() []provider.ParamSpec {
 	return []provider.ParamSpec{
-		{Key: "url", Label: "音视频 URL", Type: provider.ParamString, Required: true,
-			Placeholder: "公网可访问的音视频 URL", Group: "输入"},
+		// url 非必填：本地文件 + 对象存储中转时由任务运行期补齐（ensureURLInput）。
+		{Key: "url", Label: "音视频 URL", Type: provider.ParamString,
+			Placeholder: "公网可访问的音视频 URL；留空则使用上传的本地文件（需配置对象存储）", Group: "输入"},
 		{Key: "scene", Label: "分离场景", Type: provider.ParamEnum,
 			Default: "Audio", Group: "参数",
 			Options: []provider.ParamOption{
@@ -69,11 +70,7 @@ func (t *SeparateTool) ParamSpecs() []provider.ParamSpec {
 
 func (t *SeparateTool) Run(ctx context.Context, in provider.TaskInput, report provider.ProgressReporter) (provider.TaskOutput, error) {
 	// 参数校验先行（与 tts/asr/podcast 同序，M3 b964939 语义）：参数错误（退出码 2）
-	// 不应被凭证校验（退出码 4）掩盖。首期仅公网 URL 输入：Files 不消费（多余 files 静默忽略）。
-	mediaURL := paramString(in.Params, "url")
-	if mediaURL == "" {
-		return provider.TaskOutput{}, fmt.Errorf("缺少输入：请提供公网可访问的音视频 URL")
-	}
+	// 不应被凭证校验（退出码 4）掩盖。凭证校验先于文件转存：无凭证不白传大文件。
 	scene, err := parseSeparateScene(paramString(in.Params, "scene"))
 	if err != nil {
 		return provider.TaskOutput{}, err
@@ -86,6 +83,13 @@ func (t *SeparateTool) Run(ctx context.Context, in provider.TaskInput, report pr
 	// MediaKit 凭证独立于语音三件套（无 SpeechCred，不调 cred.Validate）。
 	if t.client == nil || t.client.apiKey == "" {
 		return provider.TaskOutput{}, fmt.Errorf("%w: 未配置 AI MediaKit API Key：请执行 toolbox config set volc.mediakit.api_key 或在 Web 设置页配置", ErrNoCred)
+	}
+
+	// 输入二选一：公网 URL，或本地文件（配置了对象存储时自动中转取签名 URL）。
+	mediaURL, err := ensureURLInput(ctx, in, "url", "音视频",
+		"缺少输入：请提供公网可访问的音视频 URL，或上传本地文件（需在设置页配置对象存储）", report)
+	if err != nil {
+		return provider.TaskOutput{}, err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, sepToolTimeout)

@@ -50,10 +50,11 @@ make all
 # 一句话识别（本地文件同步秒级，缺省版本；--srt 默认产出 SRT 字幕）
 ./bin/toolbox asr /tmp/recording.mp3 --out /tmp/transcript.txt --json
 
-# 录音文件识别（URL；--version standard|idle|flash，闲时/极速仅收公网 URL）
+# 录音文件识别（URL；--version standard|idle|flash，闲时/极速可 --file 本地文件经对象存储中转）
 ./bin/toolbox asr --url "https://example.com/talk.mp3"                            --json   # 标准版，异步转写
 ./bin/toolbox asr --url "https://example.com/talk.mp3" --version flash --json   # 极速版，同步秒级返回
 ./bin/toolbox asr --url "https://example.com/talk.mp3" --version idle  --json   # 闲时版，低价、24h 内完成
+./bin/toolbox asr --file /tmp/talk.m4a --version flash --json   # 本地文件走极速版（需配置对象存储）
 
 # 主题一键生成双人播客（--speakers 必填：两个音色 ID 逗号分隔，用 toolbox voices list 查询，支持 --scene/--lang 筛选）
 ./bin/toolbox podcast "用五分钟聊聊本地大模型" \
@@ -62,17 +63,26 @@ make all
 # 播客输入四选一：位置参数文本 / --file 长文本文件 / --url 网页 / --script 对话稿 JSON（互斥）
 # 音频格式 --format mp3|ogg_opus|pcm|aac，开头音乐 --head-music
 
+# 对象存储中转（推荐火山 TOS：闲时/极速识别、人声分离、妙记的本地文件自动转存取签名 URL，默认 3 天生命周期）
+./bin/toolbox config set storage.provider tos
+./bin/toolbox config set storage.endpoint tos-cn-beijing.volces.com   # 与桶地域一致
+./bin/toolbox config set storage.region cn-beijing
+./bin/toolbox config set storage.bucket <bucket>
+./bin/toolbox config set storage.access_key <AK>
+./bin/toolbox config set storage.secret_key <SK>
+./bin/toolbox config set storage.lifecycle_days 3   # Web 设置页可一键写入桶生命周期规则
+
 # 人声背景音分离（四场景 audio/music 双轨、drama/narrate 三轨；需独立的 MediaKit API Key）
 ./bin/toolbox config set volc.mediakit.api_key <MediaKit API Key>
 ./bin/toolbox separate "https://example.com/media.mp4" --scene audio --format mp3 --json
-# 音视频公网 URL 必填（MediaKit 不支持本地文件，本地文件请先上传至对象存储）；
-# 输出格式 --format aac|mp3|wav|m4a|flac，产物音轨落盘 --out-dir 指定目录
+./bin/toolbox separate --file /tmp/media.mp4 --scene audio --json   # 本地文件（需配置对象存储）
+# 输入二选一：公网 URL 或 --file；输出格式 --format aac|mp3|wav|m4a|flac，产物音轨落盘 --out-dir 指定目录
 
 # 机器翻译（32 语种互译，--from 缺省自动检测；--terms 直传术语「原词=译词」，也可 --table-id/--table-name 用术语表）
 ./bin/toolbox translate "火山引擎是字节跳动旗下的企业级智能技术服务平台" --to en \
   --terms "火山引擎=Volcengine" --out /tmp/translated.txt --json
 
-# 语音妙记（音视频 URL 转结构化纪要，--features 附加功能至少一项，分钟级异步）
+# 语音妙记（音视频转结构化纪要，--features 附加功能至少一项，分钟级异步；URL 或 --file 本地文件）
 ./bin/toolbox minutes "https://example.com/meeting.mp4" --features summary,todo,chapter \
   --speakers 0 --out-dir /tmp/minutes --json
 

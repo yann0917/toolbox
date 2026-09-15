@@ -18,6 +18,7 @@ type Config struct {
 	Server  ServerConfig
 	DataDir string
 	Volc    VolcConfig
+	Storage StorageConfig
 }
 
 type ServerConfig struct{ Port int }
@@ -34,6 +35,20 @@ type SpeechConfig struct {
 }
 
 type MediaKitConfig struct{ APIKey string }
+
+// StorageConfig 对象存储（大文件中转）：语音识别/人声分离/妙记等 URL-only 工具的本地文件
+// 会在任务执行时转存到该桶并取预签名 URL 提交上游。Provider 留空表示未启用；
+// "tos" 为火山 TOS 官方 SDK 通道（S3 兼容通道为 OSS/腾讯 COS 预留，暂未开放）。
+type StorageConfig struct {
+	Provider      string
+	Endpoint      string
+	Region        string
+	Bucket        string
+	AccessKey     string
+	SecretKey     string
+	Prefix        string // 对象 key 前缀，空则落桶根
+	LifecycleDays int    // 生命周期（天）：上游消费完即无用，桶内前缀对象到期自动清理；0 表示不设置
+}
 
 type KV struct{ Key, Value string }
 
@@ -168,6 +183,16 @@ func configFromViper(v *viper.Viper) *Config {
 			},
 			MediaKit: MediaKitConfig{APIKey: v.GetString("volc.mediakit.api_key")},
 		},
+		Storage: StorageConfig{
+			Provider:      strings.TrimSpace(v.GetString("storage.provider")),
+			Endpoint:      strings.TrimSpace(v.GetString("storage.endpoint")),
+			Region:        strings.TrimSpace(v.GetString("storage.region")),
+			Bucket:        strings.TrimSpace(v.GetString("storage.bucket")),
+			AccessKey:     strings.TrimSpace(v.GetString("storage.access_key")),
+			SecretKey:     strings.TrimSpace(v.GetString("storage.secret_key")),
+			Prefix:        strings.TrimSpace(v.GetString("storage.prefix")),
+			LifecycleDays: v.GetInt("storage.lifecycle_days"),
+		},
 	}
 }
 
@@ -290,6 +315,10 @@ func List() ([]KV, error) {
 		{"volc.speech.access_token", mask(cfg.Volc.Speech.AccessToken)},
 		{"volc.speech.api_key", mask(cfg.Volc.Speech.APIKey)},
 		{"volc.mediakit.api_key", mask(cfg.Volc.MediaKit.APIKey)},
+		{"storage.provider", cfg.Storage.Provider},
+		{"storage.bucket", cfg.Storage.Bucket},
+		{"storage.access_key", mask(cfg.Storage.AccessKey)},
+		{"storage.secret_key", mask(cfg.Storage.SecretKey)},
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
 	return rows, nil

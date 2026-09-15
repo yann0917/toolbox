@@ -35,6 +35,29 @@ type Engine struct {
 	notify  func(Event)
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
+
+	// storageMu 守护 storage 函数的替换（Web 保存存储配置热更新）：每个任务启动时
+	// 调用一次取当前客户端，进行中任务不受后续替换影响。
+	storageMu sync.RWMutex
+	storage   func() provider.StorageClient
+}
+
+// SetStorageClient 注入对象存储客户端获取函数（nil 或返回 nil 表示未配置）。
+// 供 Service 在启动与存储配置热更新时调用。
+func (e *Engine) SetStorageClient(fn func() provider.StorageClient) {
+	e.storageMu.Lock()
+	e.storage = fn
+	e.storageMu.Unlock()
+}
+
+// storageClient 当前对象存储客户端（未注入或返回 nil 均表示未配置）。
+func (e *Engine) storageClient() provider.StorageClient {
+	e.storageMu.RLock()
+	defer e.storageMu.RUnlock()
+	if e.storage == nil {
+		return nil
+	}
+	return e.storage()
 }
 
 func New(db *store.DB, reg *provider.Registry, dataDir string, concurrency int, notify func(Event)) *Engine {
@@ -133,7 +156,7 @@ func (e *Engine) run(ctx context.Context, t *store.Task, tool provider.Tool, par
 		e.emit(Event{Type: "progress", TaskID: t.ID, Provider: t.Provider, Tool: t.Tool, Progress: progress, Note: note, Detail: detail})
 	}
 
-	out, runErr := tool.Run(ctx, provider.TaskInput{Params: params, Files: files}, report)
+	out, runErr := tool.Run(ctx, provider.TaskInput{Params: params, Files: files, Storage: e.storageClient()}, report)
 
 	var saved []store.Artifact
 	for _, a := range out.Artifacts {

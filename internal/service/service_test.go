@@ -91,7 +91,7 @@ func TestReloadVolcFromDisk(t *testing.T) {
 	}
 	before := svc.Config().DataDir
 
-	svc.ReloadVolc(&config.Config{
+	svc.ReloadDiskConfig(&config.Config{
 		Server:  config.ServerConfig{Port: 9999},
 		DataDir: "/somewhere/else",
 		Volc: config.VolcConfig{
