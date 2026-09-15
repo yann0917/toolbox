@@ -50,6 +50,10 @@ func newTOSClient(cfg Config) (Client, error) {
 	}
 	cli, err := tos.NewClientV2(endpoint, opts...)
 	if err != nil {
+		// 用户常从控制台复制到 S3 兼容域名（tos-s3-…），原生 SDK 拒绝：给可操作的提示而非裸错误。
+		if strings.Contains(err.Error(), "s3 endpoint") {
+			return nil, fmt.Errorf("endpoint %s 是 TOS 的 S3 兼容域名（tos-s3-…），原生通道请使用 tos-<region>.volces.com 形式（S3 兼容通道规划中）", endpoint)
+		}
 		return nil, fmt.Errorf("初始化 TOS 客户端失败: %w", err)
 	}
 	return &tosClient{cli: cli, bucket: cfg.Bucket, prefix: cleanPrefix(cfg.Prefix)}, nil

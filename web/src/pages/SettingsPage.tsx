@@ -131,6 +131,10 @@ export default function SettingsPage() {
     onError: (e: Error) => toast({ tone: "error", title: "应用生命周期规则失败", description: e.message }),
   });
 
+  // 存储类型走受控 state：自定义 Select 是 combobox div（无原生 name 注册），
+  // FormData 读不到它的值——曾导致 provider 恒存为空串、其余字段正常但通道判定未启用。
+  const [storageProvider, setStorageProvider] = useState<string | null>(null);
+
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -250,7 +254,7 @@ export default function SettingsPage() {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
                 saveStorage.mutate({
-                  provider: String(fd.get("provider") ?? ""),
+                  provider: storageProvider ?? data.storage!.provider,
                   endpoint: String(fd.get("endpoint") ?? "").trim(),
                   region: String(fd.get("region") ?? "").trim(),
                   bucket: String(fd.get("bucket") ?? "").trim(),
@@ -265,7 +269,12 @@ export default function SettingsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="存储类型" hint="留空（未启用）表示不使用对象存储">
                   {({ id, ...rest }) => (
-                    <Select id={id} name="provider" defaultValue={data.storage!.provider} {...rest}>
+                    <Select
+                      id={id}
+                      value={storageProvider ?? data.storage!.provider}
+                      onChange={(e) => setStorageProvider(e.target.value)}
+                      {...rest}
+                    >
                       <option value="">未启用</option>
                       <option value="tos">火山引擎 TOS</option>
                     </Select>

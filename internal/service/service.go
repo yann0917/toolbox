@@ -31,8 +31,12 @@ type Service struct {
 
 	// storageMu 守护对象存储客户端的替换（Web 保存存储配置 / 配置文件监听热更新）。
 	// 任务提交经 Engine.SetStorageClient 的 getter 取当前客户端，进行中任务不受替换影响。
-	storageMu     sync.RWMutex
-	storageClient objectstorage.Client
+	// storageInitErr 记录最近一次客户端构造失败的原因（配置非法时 client 为 nil，
+	// 若连错误一起丢弃，设置页只会看到"未配置"，无法定位）。
+	storageMu       sync.RWMutex
+	storageClient   objectstorage.Client
+	storageInitErr  error
+	storageInitSeen bool
 }
 
 func New(cfg *config.Config) (*Service, error) {
@@ -95,7 +99,9 @@ func (s *Service) storageFull() objectstorage.Client {
 	return s.storageClient
 }
 
-// rebuildStorageClient 按存储段配置重建客户端（启动与热更新共用）；配置不完整时置 nil。
+// rebuildStorageClient 按存储段配置重建客户端（启动与热更新共用）。
+// 配置为「未启用」（provider 空）时置 nil 且无错误；配置给了 provider 但不完整或非法时
+// 置 nil 并记录错误，供设置页探活时给出可定位的提示。
 func (s *Service) rebuildStorageClient(sc config.StorageConfig) {
 	cli, err := objectstorage.New(objectstorage.Config{
 		Provider:      sc.Provider,
@@ -109,9 +115,9 @@ func (s *Service) rebuildStorageClient(sc config.StorageConfig) {
 	})
 	s.storageMu.Lock()
 	s.storageClient = cli
+	s.storageInitErr = err
+	s.storageInitSeen = true
 	s.storageMu.Unlock()
-	// 构造失败（如 provider 拼写错误）仅在取用时以 ErrNotConfigured 语义暴露，此处置 nil 即可。
-	_ = err
 }
 
 func (s *Service) Engine() *task.Engine {
@@ -234,10 +240,22 @@ func (s *Service) SaveStorage(sc config.StorageConfig) error {
 }
 
 // TestStorageConnection 对象存储探活（HeadBucket）：桶可达且凭证有效即成功。
+// 未就绪时按原因区分提示（未配置 / 配了参数但没选存储类型 / 初始化失败），可定位。
 func (s *Service) TestStorageConnection() (string, bool) {
-	cli := s.storageFull()
+	s.storageMu.RLock()
+	cli, initErr, seen := s.storageClient, s.storageInitErr, s.storageInitSeen
+	s.storageMu.RUnlock()
 	if cli == nil {
-		return "对象存储未配置", false
+		sc := s.cfg.Load().Storage
+		switch {
+		case sc.Provider == "" && (sc.Endpoint != "" || sc.Bucket != ""):
+			// 其他参数在、唯独 provider 空：多半是表单保存丢了选择（如 FormData 读不到自定义 Select）
+			return "存储类型未选择（endpoint/bucket 等已填写）：请在设置页选择 TOS 后重新保存", false
+		case seen && initErr != nil:
+			return "存储配置未生效：" + initErr.Error(), false
+		default:
+			return "对象存储未配置", false
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
