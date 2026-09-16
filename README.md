@@ -50,11 +50,12 @@ make all
 # 一句话识别（本地文件同步秒级，缺省版本；--srt 默认产出 SRT 字幕）
 ./bin/toolbox asr /tmp/recording.mp3 --out /tmp/transcript.txt --json
 
-# 录音文件识别（URL；--version standard|idle|flash，闲时/极速可 --file 本地文件经对象存储中转）
+# 录音文件识别（URL；--version standard|idle|flash；本地文件配 --version 经对象存储中转，未配置存储时 standard 降级一句话）
 ./bin/toolbox asr --url "https://example.com/talk.mp3"                            --json   # 标准版，异步转写
 ./bin/toolbox asr --url "https://example.com/talk.mp3" --version flash --json   # 极速版，同步秒级返回
 ./bin/toolbox asr --url "https://example.com/talk.mp3" --version idle  --json   # 闲时版，低价、24h 内完成
 ./bin/toolbox asr --file /tmp/talk.m4a --version flash --json   # 本地文件走极速版（需配置对象存储）
+./bin/toolbox asr --file /tmp/talk.wav --version standard --json   # 本地文件走标准版（需配置对象存储）
 
 # 主题一键生成双人播客（--speakers 必填：两个音色 ID 逗号分隔，用 toolbox voices list 查询，支持 --scene/--lang 筛选）
 ./bin/toolbox podcast "用五分钟聊聊本地大模型" \

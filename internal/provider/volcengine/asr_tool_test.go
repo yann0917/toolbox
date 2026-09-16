@@ -174,7 +174,7 @@ func TestASRToolVersionInputConstraints(t *testing.T) {
 		t.Fatalf("err = %v, 期望一句话版拒绝 URL 输入", err)
 	}
 
-	// 旧参数组合 standard+本地文件 → 自动按一句话识别走 WS（历史任务重跑兼容）
+	// 旧参数组合 standard+本地文件（无对象存储）→ 自动按一句话识别走 WS（历史任务重跑兼容）
 	audioFile := writeTestAudio(t, t.TempDir(), "legacy.mp3", testAudio)
 	out, err := tool.Run(context.Background(), provider.TaskInput{
 		Files:  map[string]string{"audio": audioFile},
@@ -185,6 +185,71 @@ func TestASRToolVersionInputConstraints(t *testing.T) {
 	}
 	if out.Summary["version"] != "sentence" {
 		t.Errorf("standard+本地文件应自动按一句话识别处理，summary.version = %v", out.Summary["version"])
+	}
+}
+
+// TestASRToolStandardBridgesFileViaStorage 标准版+本地文件+对象存储：转存后走真标准版异步
+// （不再降级一句话），提交上游的 URL 为签名地址，summary 标记 version=standard/source=url。
+func TestASRToolStandardBridgesFileViaStorage(t *testing.T) {
+	var mu sync.Mutex
+	var audioURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			AudioURL string `json:"audio_url"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		if body.AudioURL != "" { // query 请求体只有 id，不能覆盖 submit 捕获的 URL
+			audioURL = body.AudioURL
+		}
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Api-Status-Code", "20000000")
+		// submit 与 query 共用此 handler：query 侧以 body status=Completed 直达终态（防轮询超时）
+		w.Write([]byte(`{"status":"Completed","result":{"text":"你好"},"audio_info":{"duration":1500}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cred := SpeechCred{APIKey: "key-1"}
+	tool := &ASRTool{
+		ws:     NewASRClientWithURL(cred, "ws://127.0.0.1:1"),
+		auc:    NewASRAUCClientWithBaseURL(cred, srv.URL),
+		cred:   cred,
+		outDir: t.TempDir(),
+	}
+	audioFile := writeTestAudio(t, t.TempDir(), "long.wav", []byte("audio"))
+	out, err := tool.Run(context.Background(), provider.TaskInput{
+		Files:   map[string]string{"audio": audioFile},
+		Params:  map[string]any{"version": "standard"},
+		Storage: &fakeStorage{},
+	}, nopReport)
+	if err != nil {
+		t.Fatalf("Run() err = %v", err)
+	}
+	if !strings.HasPrefix(audioURL, "https://bucket.tos-cn-beijing.volces.com/") ||
+		!strings.HasSuffix(strings.Split(audioURL, "?")[0], ".wav") {
+		t.Fatalf("提交上游的 URL = %q, 期望为转存签名 URL", audioURL)
+	}
+	if out.Summary["version"] != "standard" || out.Summary["source"] != "url" {
+		t.Fatalf("summary = %v, 期望 version=standard source=url", out.Summary)
+	}
+}
+
+// TestASRToolStandardRejectsBadFormatFile 标准版文件白名单（wav/mp3/ogg/pcm）转存前拦截。
+func TestASRToolStandardRejectsBadFormatFile(t *testing.T) {
+	tool := newASRToolWithMockWS(t, []byte("audio"), "mp3")
+	audioFile := writeTestAudio(t, t.TempDir(), "song.m4a", []byte("audio"))
+	st := &fakeStorage{}
+	_, err := tool.Run(context.Background(), provider.TaskInput{
+		Files:   map[string]string{"audio": audioFile},
+		Params:  map[string]any{"version": "standard"},
+		Storage: st,
+	}, nopReport)
+	if err == nil || !strings.Contains(err.Error(), "标准") {
+		t.Fatalf("err = %v, 期望标准版格式白名单拦截", err)
+	}
+	if len(st.keys) != 0 {
+		t.Fatalf("格式不合规不应触发转存, keys = %v", st.keys)
 	}
 }
 

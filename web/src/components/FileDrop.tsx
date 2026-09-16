@@ -3,8 +3,13 @@ import { AlertTriangle, Upload, X } from "lucide-react";
 import { IconButton } from "../ui";
 
 interface FileDropProps {
-  file: File | null;
-  onFile: (f: File | null) => void;
+  /** 单文件模式的受控值（与 multiple 互斥使用） */
+  file?: File | null;
+  onFile?: (f: File | null) => void;
+  /** 多文件模式（工作台批量识别）：受控 File 数组，拖入/选择为追加语义由父层决定 */
+  multiple?: boolean;
+  files?: File[];
+  onFiles?: (fs: File[]) => void;
   /** 文件选择器的 accept 值（如 ".mp3,.wav"，须与页面文案/后端白名单一致） */
   accept: string;
   /** 空态提示（支持的格式说明） */
@@ -15,17 +20,29 @@ interface FileDropProps {
   error?: string;
 }
 
-/** 本地文件拖放/点选区：人声分离与妙记的「本地上传」输入通道（文件经服务端中转对象存储）。 */
-export function FileDrop({ file, onFile, accept, emptyHint, label, error }: FileDropProps) {
+/** 本地文件拖放/点选区：人声分离/妙记的单文件与工作台批量识别的多文件上传通道
+ *（文件经服务端中转对象存储）。 */
+export function FileDrop({ file, onFile, multiple, files, onFiles, accept, emptyHint, label, error }: FileDropProps) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const emit = (picked: File[]) => {
+    if (multiple) {
+      onFiles?.(picked);
+    } else {
+      onFile?.(picked[0] ?? null);
+    }
+  };
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) onFile(f);
+    const picked = Array.from(e.dataTransfer.files ?? []);
+    if (picked.length === 0) return;
+    emit(multiple ? [...(files ?? []), ...picked] : [picked[0]]);
   };
+
+  const showFiles = multiple ? (files ?? []) : file ? [file] : [];
 
   return (
     <div className="space-y-2">
@@ -53,11 +70,28 @@ export function FileDrop({ file, onFile, accept, emptyHint, label, error }: File
         <span className={`flex size-9 items-center justify-center rounded-full border border-line bg-raise ${dragging ? "text-accent" : "text-muted"}`}>
           <Upload size={16} strokeWidth={1.75} />
         </span>
-        {file ? (
-          <>
-            <p className="max-w-full truncate text-sm text-fg">{file.name}</p>
-            <p className="font-mono text-[11px] tabular-nums text-muted">{formatBytes(file.size)}</p>
-          </>
+        {showFiles.length > 0 ? (
+          multiple ? (
+            <>
+              <p className="text-sm text-fg">
+                已选 <span className="font-mono tabular-nums">{showFiles.length}</span> 个文件
+              </p>
+              <p className="max-w-full truncate font-mono text-[11px] tabular-nums text-muted">
+                {formatBytes(showFiles.reduce((a, f) => a + f.size, 0))}
+                {" · "}
+                {showFiles
+                  .slice(0, 3)
+                  .map((f) => f.name)
+                  .join("、")}
+                {showFiles.length > 3 ? " 等" : ""}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="max-w-full truncate text-sm text-fg">{file!.name}</p>
+              <p className="font-mono text-[11px] tabular-nums text-muted">{formatBytes(file!.size)}</p>
+            </>
+          )
         ) : (
           <>
             <p className="text-sm text-fg-2">拖拽文件到此处，或点击选择文件</p>
@@ -68,24 +102,29 @@ export function FileDrop({ file, onFile, accept, emptyHint, label, error }: File
           ref={inputRef}
           type="file"
           accept={accept}
+          multiple={multiple}
           aria-label={label}
           className="hidden"
           onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onFile(f);
+            const picked = Array.from(e.target.files ?? []);
+            if (picked.length > 0) emit(multiple ? picked : [picked[0]]);
             e.target.value = "";
           }}
         />
       </div>
-      {file && (
+      {showFiles.length > 0 && (
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted">{file.name}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted">
+            {multiple
+              ? showFiles.map((f) => f.name).join("、")
+              : file!.name}
+          </span>
           <IconButton
             label="清除已选文件"
             size="sm"
             onClick={(e) => {
               e.stopPropagation();
-              onFile(null);
+              emit([]);
             }}
           >
             <X size={14} strokeWidth={1.75} />

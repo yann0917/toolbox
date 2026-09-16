@@ -53,10 +53,11 @@
 
 | 工具 | 变化 |
 |---|---|
-| asr | 闲时/极速版接受本地文件（转存前拦格式与大小：极速 100MB、闲时 512MB）；标准版+文件仍降级一句话；ParamSpecs 的 url 转「URL 或文件」语义 |
+| asr | 标准/闲时/极速版均接受本地文件（转存前拦格式与大小：极速 100MB、闲时 512MB、标准仅拦格式 wav/mp3/ogg/pcm）；标准版+文件在配置存储后走**真标准版异步**，未配置存储保持降级一句话（历史兼容）；ParamSpecs 的 url 转「URL 或文件」语义 |
 | separate | url 参数 Required 取消（引擎校验放行，Run 内合并校验）；凭证校验先于转存 |
 | minutes | 同上；文件大小前端预校验 <1G |
-| CLI | `separate`/`minutes` 新增 `--file`（与 URL 参数互斥） |
+| 工作台批量识别 | 输入区双通道（URL 列表 / 本地文件 ≤20 个，FileDrop multiple 模式），逐文件上传建任务 |
+| CLI | `separate`/`minutes` 新增 `--file`（与 URL 参数互斥）；`asr` 放开 file+version 组合限制（裁决交给工具层按存储可用性给出） |
 
 ## 前端
 

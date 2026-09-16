@@ -46,9 +46,8 @@ func newASRCommand() *cobra.Command {
 			default:
 				return fmt.Errorf("识别版本 version 仅支持 sentence（一句话，本地文件）/ standard（录音文件识别）/ idle / flash")
 			}
-			if file != "" && version != "sentence" {
-				return fmt.Errorf("标准版/闲时版/极速版仅支持 --url 输入；本地文件请使用 --version sentence（一句话识别）")
-			}
+			// 文件+URL 版本的组合交给工具层裁决：配置了对象存储时自动中转走对应版本，
+			// 未配置时 standard 降级一句话、idle/flash 给出明确的设置指引。
 			if audioURL != "" && version == "sentence" {
 				return fmt.Errorf("一句话识别仅支持本地音频文件；URL 请使用 --version standard / idle / flash")
 			}
@@ -78,7 +77,7 @@ func newASRCommand() *cobra.Command {
 	f.BoolVar(&srt, "srt", true, "额外产出 SRT 字幕（--srt=false 关闭）")
 	f.StringVar(&hotwords, "hotwords", "", "热词，逗号分隔（原样透传）")
 	f.StringVar(&language, "language", "", "识别语言（留空自动识别中文/英文/常见方言；可选 zh-CN/en-US/ja-JP/yue-CN 等 25 种）")
-	f.StringVar(&version, "version", "", "识别版本（缺省按输入推断：本地文件→sentence，URL→standard）：sentence 一句话识别（本地文件，同步秒级）/ standard 标准版（URL，录音文件识别）/ idle 闲时版（URL，24h 内完成）/ flash 极速版（URL，秒级）")
+	f.StringVar(&version, "version", "", "识别版本（缺省按输入推断：本地文件→sentence，URL→standard）：sentence 一句话识别（本地文件，同步秒级）/ standard 标准版（录音文件识别）/ idle 闲时版（24h 内完成）/ flash 极速版（秒级）；本地文件+standard/idle/flash 需配置对象存储中转")
 	f.BoolVar(&jsonOut, "json", false, "stdout 输出机器可读 JSON")
 	return cmd
 }

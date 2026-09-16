@@ -4,7 +4,9 @@ import { Link } from "react-router-dom";
 import { ArrowUpRight, AudioLines, Clock, Languages, ListOrdered, Mic, NotebookPen, Podcast, Waves, X } from "lucide-react";
 import { fetchJSON } from "../lib/api";
 import type { Task, TaskStatus } from "../lib/types";
+import { useStorageEnabled } from "../lib/useStorageEnabled";
 import { useTaskEvents } from "../lib/ws";
+import { FileDrop } from "../components/FileDrop";
 import { Button, Card, CardBody, CardHeader, EmptyState, IconButton, PageHeader, Skeleton, StatusBadge, Tabs, useToast } from "../ui";
 
 const tools = [
@@ -21,6 +23,14 @@ const MAX_BATCH = 20;
 
 type AsrVersion = "standard" | "idle" | "flash";
 
+/** 批量识别各版本的本地文件白名单（与后端 checkURLFileForBridge 一致） */
+const BATCH_EXTS: Record<AsrVersion, string[]> = {
+  standard: ["mp3", "wav", "ogg", "pcm"],
+  idle: ["wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"],
+  flash: ["wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"],
+};
+const BATCH_ACCEPT = [...new Set([...BATCH_EXTS.standard, ...BATCH_EXTS.idle])].map((e) => `.${e}`).join(",");
+
 interface BatchRow {
   task_id: string;
   url: string;
@@ -34,15 +44,20 @@ function shortUrl(u: string): string {
   return u.replace(/^https?:\/\//, "").slice(0, 60);
 }
 
-/** 批量识别：多行 URL 逐行提交为独立任务，本批次行内实时进度（WS 驱动）与逐行取消。 */
+/** 批量识别：多行 URL / 多个本地文件逐个提交为独立任务，本批次行内实时进度（WS 驱动）与逐行取消。
+ *  本地文件通道需已配置对象存储（任务执行期服务端自动转存取签名 URL）。 */
 function BatchAsrCard() {
+  const [mode, setMode] = useState<"url" | "files">("url");
   const [text, setText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState("");
   const [version, setVersion] = useState<AsrVersion>("flash");
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [running, setRunning] = useState(false);
   const qc = useQueryClient();
   const { toast } = useToast();
   const ev = useTaskEvents();
+  const { enabled: storageEnabled } = useStorageEnabled();
 
   /* WS 事件驱动行状态：progress 更新进度，终态落 StatusBadge */
   useEffect(() => {
@@ -74,26 +89,49 @@ function BatchAsrCard() {
   }, [ev]);
 
   const urls = [...new Set(text.split(/\n/).map((s) => s.trim()).filter(Boolean))];
-  const overLimit = urls.length > MAX_BATCH;
-  const badLines = urls.filter((u) => !/^https?:\/\//i.test(u));
-  const canSubmit = urls.length > 0 && !overLimit && badLines.length === 0 && !running;
+  const overLimit = mode === "url" ? urls.length > MAX_BATCH : files.length > MAX_BATCH;
+  const badLines = mode === "url" ? urls.filter((u) => !/^https?:\/\//i.test(u)) : [];
+  const badFiles = mode === "files" ? files.filter((f) => !BATCH_EXTS[version].includes(f.name.split(".").pop()?.toLowerCase() ?? "")) : [];
+  const canSubmit =
+    !running &&
+    (mode === "url"
+      ? urls.length > 0 && !overLimit && badLines.length === 0
+      : files.length > 0 && !overLimit && badFiles.length === 0);
 
   const submit = async () => {
     setRunning(true);
-    // 逐行提交：单行失败不阻断后续（错误经 toast 提示），排队交给引擎并发槽
-    for (const url of urls) {
+    // 逐条提交：单条失败不阻断后续（错误经 toast 提示），排队交给引擎并发槽
+    const items: { label: string; body: Record<string, unknown> }[] =
+      mode === "url"
+        ? urls.map((url) => ({
+            label: url,
+            body: { provider: "volcengine", tool: "asr", params: { url, version, srt: true } },
+          }))
+        : files.map((f) => ({
+            label: f.name,
+            body: { provider: "volcengine", tool: "asr", params: { version, srt: true }, file_ids: [] as string[] },
+          }));
+    for (const item of items) {
       try {
+        if (mode === "files") {
+          // 本地文件：先传本服务拿 file_id，任务执行期服务端转存对象存储换取签名 URL
+          const fd = new FormData();
+          fd.append("file", files.find((f) => f.name === item.label)!);
+          const up = await fetchJSON<{ file_id: string }>("/api/uploads", { method: "POST", body: fd, headers: {} });
+          (item.body as { file_ids: string[] }).file_ids = [up.file_id];
+        }
         const d = await fetchJSON<{ task_id: string }>("/api/tasks", {
           method: "POST",
-          body: JSON.stringify({ provider: "volcengine", tool: "asr", params: { url, version, srt: true } }),
+          body: JSON.stringify(item.body),
         });
-        setRows((prev) => [...prev, { task_id: d.task_id, url, status: "pending", progress: 0, note: "已提交" }]);
+        setRows((prev) => [...prev, { task_id: d.task_id, url: item.label, status: "pending", progress: 0, note: "已提交" }]);
       } catch (e) {
-        toast({ tone: "error", title: "提交失败", description: `${shortUrl(url)}：${(e as Error).message}` });
+        toast({ tone: "error", title: "提交失败", description: `${shortUrl(item.label)}：${(e as Error).message}` });
       }
     }
     setRunning(false);
     setText("");
+    setFiles([]);
     void qc.invalidateQueries({ queryKey: ["tasks"] });
   };
 
@@ -113,33 +151,82 @@ function BatchAsrCard() {
         aside={<span className="micro">引擎并发 ×2 自动排队</span>}
       />
       <CardBody className="space-y-3">
-        <Tabs<AsrVersion>
-          items={[
-            { value: "flash", label: "极速版" },
-            { value: "idle", label: "闲时版" },
-            { value: "standard", label: "标准版" },
-          ]}
-          value={version}
-          onChange={setVersion}
-        />
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={4}
-          placeholder={"每行一个音频 URL，最多 20 行\nhttps://example.com/a.mp3\nhttps://example.com/b.mp3"}
-          className="w-full rounded-[var(--radius-sm)] border border-line bg-raise-2 px-3 py-2 font-mono text-xs text-fg placeholder:text-muted focus:border-accent focus:outline-none"
-          aria-label="批量识别 URL 列表"
-        />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Tabs<AsrVersion>
+            items={[
+              { value: "flash", label: "极速版" },
+              { value: "idle", label: "闲时版" },
+              { value: "standard", label: "标准版" },
+            ]}
+            value={version}
+            onChange={setVersion}
+          />
+          {storageEnabled && (
+            <Tabs<"url" | "files">
+              items={[
+                { value: "url" as const, label: "URL 列表" },
+                { value: "files" as const, label: "本地文件" },
+              ]}
+              value={mode}
+              onChange={(m) => {
+                setMode(m);
+                setFileError("");
+              }}
+            />
+          )}
+        </div>
+
+        {mode === "files" ? (
+          <div className="space-y-2">
+            <FileDrop
+              multiple
+              files={files}
+              onFiles={(fs) => {
+                const bad = fs.filter((f) => !BATCH_EXTS[version].includes(f.name.split(".").pop()?.toLowerCase() ?? ""));
+                setFileError(
+                  bad.length > 0
+                    ? `${bad.length} 个文件格式不支持：${version === "standard" ? "标准版仅支持 mp3 / wav / ogg / pcm" : "闲时/极速版支持 wav / mp3 / ogg / spx / amr / aac / m4a"}`
+                    : "",
+                );
+                setFiles(fs);
+              }}
+              accept={BATCH_ACCEPT}
+              label="选择或拖入批量音频文件"
+              emptyHint={
+                version === "standard"
+                  ? "支持 mp3 / wav / ogg / pcm，最多 20 个；自动经对象存储中转（默认 3 天清理）"
+                  : "支持 wav / mp3 / ogg / spx / amr / aac / m4a，最多 20 个；自动经对象存储中转（默认 3 天清理）"
+              }
+              error={fileError || (overLimit ? `超出上限：最多 ${MAX_BATCH} 个文件` : undefined)}
+            />
+            <p className="text-[11px] text-muted">
+              每个文件一个独立任务：先上传到本服务，再转存对象存储取签名 URL 供识别拉取；「极速版」单个文件 ≤100MB。
+            </p>
+          </div>
+        ) : (
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={4}
+            placeholder={"每行一个音频 URL，最多 20 行\nhttps://example.com/a.mp3\nhttps://example.com/b.mp3"}
+            className="w-full rounded-[var(--radius-sm)] border border-line bg-raise-2 px-3 py-2 font-mono text-xs text-fg placeholder:text-muted focus:border-accent focus:outline-none"
+            aria-label="批量识别 URL 列表"
+          />
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-muted">
-            {overLimit
-              ? `超出上限：最多 ${MAX_BATCH} 行`
-              : badLines.length > 0
-                ? `${badLines.length} 行不是 http(s) 地址`
-                : `已录入 ${urls.length} 行${urls.length > 0 ? `，识别版本 ${version === "flash" ? "极速" : version === "idle" ? "闲时" : "标准"}` : ""}`}
+            {mode === "files"
+              ? badFiles.length > 0
+                ? `${badFiles.length} 个文件格式与所选版本不匹配`
+                : `已选 ${files.length} 个文件${files.length > 0 ? `，识别版本 ${version === "flash" ? "极速" : version === "idle" ? "闲时" : "标准"}` : ""}`
+              : overLimit
+                ? `超出上限：最多 ${MAX_BATCH} 行`
+                : badLines.length > 0
+                  ? `${badLines.length} 行不是 http(s) 地址`
+                  : `已录入 ${urls.length} 行${urls.length > 0 ? `，识别版本 ${version === "flash" ? "极速" : version === "idle" ? "闲时" : "标准"}` : ""}`}
           </p>
           <Button variant="primary" size="sm" loading={running} disabled={!canSubmit} onClick={() => void submit()}>
-            {running ? "提交中…" : `批量提交${urls.length > 0 ? ` ${urls.length} 个` : ""}`}
+            {running ? "提交中…" : `批量提交${mode === "url" ? (urls.length > 0 ? ` ${urls.length} 个` : "") : files.length > 0 ? ` ${files.length} 个` : ""}`}
           </Button>
         </div>
 
