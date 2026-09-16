@@ -469,18 +469,19 @@ func hotwordsCorpus(hotwords string) *aucCorpus {
 	return &aucCorpus{Context: string(raw)}
 }
 
-// audioFormatOf 由扩展名推断音频格式：mp3/wav/ogg/pcm 之外（m4a/aac/flac/mp4 及未知扩展名）
+// audioFormatOf 由扩展名推断音频格式，白名单对齐官方 bigmodel_nostream 文档的
+// audio.format 可选值：wav/mp3/ogg/pcm/spx/amr/aac/m4a；之外的扩展名（flac/mp4 及未知）
 // 一律报「暂不支持」（CLI 侧映射参数错误退出码 2）。
 func audioFormatOf(path string) (string, error) {
 	ext := strings.TrimPrefix(filepath.Ext(path), ".")
 	switch strings.ToLower(ext) {
-	case "mp3", "wav", "ogg", "pcm":
+	case "wav", "mp3", "ogg", "pcm", "spx", "amr", "aac", "m4a":
 		return strings.ToLower(ext), nil
 	}
 	if ext == "" {
-		return "", fmt.Errorf("暂不支持该音频格式（支持 mp3/wav/ogg/pcm）")
+		return "", fmt.Errorf("暂不支持该音频格式（支持 wav/mp3/ogg/pcm/spx/amr/aac/m4a）")
 	}
-	return "", fmt.Errorf("暂不支持该音频格式 .%s（支持 mp3/wav/ogg/pcm）", ext)
+	return "", fmt.Errorf("暂不支持该音频格式 .%s（支持 wav/mp3/ogg/pcm/spx/amr/aac/m4a）", ext)
 }
 
 // asrSRTEnabled 读取 srt 参数（默认开启；兼容 bool 与字符串 "false"）。

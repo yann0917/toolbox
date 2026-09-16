@@ -58,8 +58,9 @@ const TRACK_LABELS: Record<string, string> = {
   sfx: "音效",
 };
 const trackLabel = (t?: string) => (t ? TRACK_LABELS[t] ?? t : "音轨");
-/** 语音识别仅接受 mp3/wav，其他格式不提供「送 ASR」入口 */
-const asrCompatible = (fmt?: string) => fmt === "mp3" || fmt === "wav";
+/** 分离产物送 ASR 的格式门控：语音识别白名单（wav/mp3/ogg/pcm/spx/amr/aac/m4a）
+ *  与分离输出格式（aac/mp3/wav/m4a/flac）的交集，flac 不支持 */
+const asrCompatible = (fmt?: string) => !!fmt && ["mp3", "wav", "aac", "m4a"].includes(fmt);
 
 /** 本地上传通道接受的音视频扩展名（MediaKit 按扩展名分流 audio_url/video_url） */
 const SEP_ACCEPT = ".mp3,.wav,.flac,.m4a,.aac,.ogg,.mp4,.mov,.avi,.mkv,.webm";
@@ -237,7 +238,7 @@ export default function SeparatePage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="输出格式" hint="默认 mp3；语音识别仅支持 mp3 / wav">
+            <Field label="输出格式" hint="默认 mp3；送识别支持 mp3 / wav / aac / m4a">
               {({ id, ...rest }) => (
                 <Select id={id} value={format} onChange={(e) => setFormat(e.target.value)} {...rest}>
                   {FORMATS.map((f) => (
@@ -347,7 +348,7 @@ export default function SeparatePage() {
                     ) : (
                       <span
                         className="shrink-0 text-[11px] text-muted"
-                        title="语音识别仅支持 mp3 / wav，可重新分离并选择对应格式"
+                        title="flac 格式语音识别暂不支持，可重新分离并选择 mp3 / wav / aac / m4a"
                       >
                         格式暂不支持识别
                       </span>

@@ -517,12 +517,37 @@ func TestASRToolIdleFlashURLFormatRequired(t *testing.T) {
 
 func TestASRToolBadFormat(t *testing.T) {
 	tool := newASRToolWithMockWS(t, []byte("audio"), "mp3")
-	audioFile := writeTestAudio(t, t.TempDir(), "song.m4a", []byte("fake-m4a"))
+	// m4a 已在官方 format 白名单内；flac 不在，应报「暂不支持」
+	audioFile := writeTestAudio(t, t.TempDir(), "song.flac", []byte("fake-flac"))
 	_, err := tool.Run(context.Background(), provider.TaskInput{
 		Files: map[string]string{"audio": audioFile},
 	}, nopReport)
 	if err == nil || !strings.Contains(err.Error(), "暂不支持") {
 		t.Fatalf("err = %v, 期望包含「暂不支持」", err)
+	}
+}
+
+// TestASRToolSentenceAcceptsExtendedFormats 一句话版格式白名单对齐官方文档：
+// wav/mp3/ogg/pcm/spx/amr/aac/m4a 八种均可用。
+func TestASRToolSentenceAcceptsExtendedFormats(t *testing.T) {
+	testAudio := make([]byte, 100*1024) // ≥2 片：mock 断言首个音频包 seq 为正
+	for i := range testAudio {
+		testAudio[i] = byte(i % 251)
+	}
+	for _, ext := range []string{"wav", "mp3", "ogg", "pcm", "spx", "amr", "aac", "m4a"} {
+		t.Run(ext, func(t *testing.T) {
+			tool := newASRToolWithMockWS(t, testAudio, ext)
+			audioFile := writeTestAudio(t, t.TempDir(), "sample."+ext, testAudio)
+			out, err := tool.Run(context.Background(), provider.TaskInput{
+				Files: map[string]string{"audio": audioFile},
+			}, nopReport)
+			if err != nil {
+				t.Fatalf("ext=%s Run() err = %v", ext, err)
+			}
+			if len(out.Artifacts) == 0 {
+				t.Fatalf("ext=%s 未产出产物", ext)
+			}
+		})
 	}
 }
 

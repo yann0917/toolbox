@@ -53,7 +53,7 @@
 
 | 工具 | 变化 |
 |---|---|
-| asr | 标准/闲时/极速版均接受本地文件，三版本格式白名单一致（wav/mp3/ogg/spx/amr/aac/m4a，转存前拦截；大小上限极速 100MB、闲时 512MB、标准交服务端裁决）；标准版+文件在配置存储后走**真标准版异步**，未配置存储保持降级一句话（历史兼容）；ParamSpecs 的 url 转「URL 或文件」语义 |
+| asr | 标准/闲时/极速版均接受本地文件，三版本格式白名单一致（wav/mp3/ogg/spx/amr/aac/m4a，转存前拦截；大小上限极速 100MB、闲时 512MB、标准交服务端裁决）；一句话版白名单同步放开为官方八种 wav/mp3/ogg/pcm/spx/amr/aac/m4a（bigmodel_nostream 文档 audio.format 全集）；标准版+文件在配置存储后走**真标准版异步**，未配置存储保持降级一句话（历史兼容）；ParamSpecs 的 url 转「URL 或文件」语义 |
 | separate | url 参数 Required 取消（引擎校验放行，Run 内合并校验）；凭证校验先于转存 |
 | minutes | 同上；文件大小前端预校验 <1G |
 | 工作台批量识别 | 输入区双通道（URL 列表 / 本地文件 ≤20 个，FileDrop multiple 模式），逐文件上传建任务 |

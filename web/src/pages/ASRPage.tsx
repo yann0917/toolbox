@@ -44,8 +44,9 @@ import {
   useToast,
 } from "../ui";
 
-/** 音频扩展名白名单（与后端一致）：一句话版 mp3/wav/ogg/pcm；闲时/极速版（URL 格式白名单）更宽 */
-const SENTENCE_EXTS = ["mp3", "wav", "ogg", "pcm"];
+/** 音频扩展名白名单（与后端一致）：一句话版与标准/闲时/极速版均为官方八种格式
+    （bigmodel_nostream 文档 audio.format：wav/mp3/ogg/pcm/spx/amr/aac/m4a） */
+const SENTENCE_EXTS = ["wav", "mp3", "ogg", "pcm", "spx", "amr", "aac", "m4a"];
 const URL_VERSION_EXTS = ["wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"];
 const ACCEPT_ALL = [...new Set([...SENTENCE_EXTS, ...URL_VERSION_EXTS])]
   .map((e) => `.${e}`)
@@ -510,7 +511,7 @@ export default function ASRPage() {
                           <p className="text-sm text-fg-2">拖拽音频到此处，或点击选择文件</p>
                           <p className="text-[11px] text-muted">
                             {version === "sentence"
-                              ? "支持 mp3 / wav / ogg / pcm"
+                              ? "支持 wav / mp3 / ogg / pcm / spx / amr / aac / m4a"
                               : "支持 wav / mp3 / ogg / spx / amr / aac / m4a；提交后自动经对象存储中转（默认 3 天清理）"}
                           </p>
                         </>
