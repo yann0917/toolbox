@@ -235,10 +235,11 @@ func TestASRToolStandardBridgesFileViaStorage(t *testing.T) {
 	}
 }
 
-// TestASRToolStandardRejectsBadFormatFile 标准版文件白名单（wav/mp3/ogg/pcm）转存前拦截。
+// TestASRToolStandardRejectsBadFormatFile 标准版与闲时/极速版共用格式白名单
+// （wav/mp3/ogg/spx/amr/aac/m4a），白名单外的扩展名转存前拦截。
 func TestASRToolStandardRejectsBadFormatFile(t *testing.T) {
 	tool := newASRToolWithMockWS(t, []byte("audio"), "mp3")
-	audioFile := writeTestAudio(t, t.TempDir(), "song.m4a", []byte("audio"))
+	audioFile := writeTestAudio(t, t.TempDir(), "song.flac", []byte("audio"))
 	st := &fakeStorage{}
 	_, err := tool.Run(context.Background(), provider.TaskInput{
 		Files:   map[string]string{"audio": audioFile},

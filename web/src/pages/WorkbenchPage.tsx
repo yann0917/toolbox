@@ -23,13 +23,9 @@ const MAX_BATCH = 20;
 
 type AsrVersion = "standard" | "idle" | "flash";
 
-/** 批量识别各版本的本地文件白名单（与后端 checkURLFileForBridge 一致） */
-const BATCH_EXTS: Record<AsrVersion, string[]> = {
-  standard: ["mp3", "wav", "ogg", "pcm"],
-  idle: ["wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"],
-  flash: ["wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"],
-};
-const BATCH_ACCEPT = [...new Set([...BATCH_EXTS.standard, ...BATCH_EXTS.idle])].map((e) => `.${e}`).join(",");
+/** 批量识别本地文件白名单：标准/闲时/极速三版本一致（与后端 checkURLFileForBridge 一致） */
+const BATCH_EXTS = ["wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"];
+const BATCH_ACCEPT = BATCH_EXTS.map((e) => `.${e}`).join(",");
 
 interface BatchRow {
   task_id: string;
@@ -91,7 +87,7 @@ function BatchAsrCard() {
   const urls = [...new Set(text.split(/\n/).map((s) => s.trim()).filter(Boolean))];
   const overLimit = mode === "url" ? urls.length > MAX_BATCH : files.length > MAX_BATCH;
   const badLines = mode === "url" ? urls.filter((u) => !/^https?:\/\//i.test(u)) : [];
-  const badFiles = mode === "files" ? files.filter((f) => !BATCH_EXTS[version].includes(f.name.split(".").pop()?.toLowerCase() ?? "")) : [];
+  const badFiles = mode === "files" ? files.filter((f) => !BATCH_EXTS.includes(f.name.split(".").pop()?.toLowerCase() ?? "")) : [];
   const canSubmit =
     !running &&
     (mode === "url"
@@ -182,21 +178,13 @@ function BatchAsrCard() {
               multiple
               files={files}
               onFiles={(fs) => {
-                const bad = fs.filter((f) => !BATCH_EXTS[version].includes(f.name.split(".").pop()?.toLowerCase() ?? ""));
-                setFileError(
-                  bad.length > 0
-                    ? `${bad.length} 个文件格式不支持：${version === "standard" ? "标准版仅支持 mp3 / wav / ogg / pcm" : "闲时/极速版支持 wav / mp3 / ogg / spx / amr / aac / m4a"}`
-                    : "",
-                );
+                const bad = fs.filter((f) => !BATCH_EXTS.includes(f.name.split(".").pop()?.toLowerCase() ?? ""));
+                setFileError(bad.length > 0 ? `${bad.length} 个文件格式不支持：支持 wav / mp3 / ogg / spx / amr / aac / m4a` : "");
                 setFiles(fs);
               }}
               accept={BATCH_ACCEPT}
               label="选择或拖入批量音频文件"
-              emptyHint={
-                version === "standard"
-                  ? "支持 mp3 / wav / ogg / pcm，最多 20 个；自动经对象存储中转（默认 3 天清理）"
-                  : "支持 wav / mp3 / ogg / spx / amr / aac / m4a，最多 20 个；自动经对象存储中转（默认 3 天清理）"
-              }
+              emptyHint="支持 wav / mp3 / ogg / spx / amr / aac / m4a，最多 20 个；自动经对象存储中转（默认 3 天清理）"
               error={fileError || (overLimit ? `超出上限：最多 ${MAX_BATCH} 个文件` : undefined)}
             />
             <p className="text-[11px] text-muted">

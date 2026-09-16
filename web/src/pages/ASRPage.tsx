@@ -57,7 +57,7 @@ type ASRVersion = "sentence" | "standard" | "idle" | "flash";
 
 /** URL 输入提示随版本变化（闲时/极速版 format 由 URL 扩展名推断，与后端 audioFormatFromURL 一致） */
 const URL_HINT: Record<"standard" | "idle" | "flash", string> = {
-  standard: "需公网可访问的 mp3 / wav / ogg / pcm 音频地址（异步转写）",
+  standard: "公网音频地址（wav/mp3/ogg/spx/amr/aac/m4a），异步转写",
   idle: "公网音频地址（wav/mp3/ogg/spx/amr/aac/m4a），最大 512MB / 5 小时",
   flash: "公网音频地址（wav/mp3/ogg/spx/amr/aac/m4a），最大 100MB / 2 小时",
 };
@@ -161,9 +161,9 @@ export default function ASRPage() {
   const ev = useTaskEvents();
   const { enabled: storageEnabled } = useStorageEnabled();
 
-  /* 当前版本的本地上传白名单与上限：sentence/standard 直发或中转 mp3/wav/ogg/pcm；
-     闲时/极速版经对象存储中转，格式白名单与 URL 一致；极速版另有 100MB 上限（转存前拦截）。 */
-  const allowedExts = version === "idle" || version === "flash" ? URL_VERSION_EXTS : SENTENCE_EXTS;
+  /* 本地上传白名单：一句话版（WS 直发）mp3/wav/ogg/pcm；标准/闲时/极速三版本白名单一致
+     （wav/mp3/ogg/spx/amr/aac/m4a，转存后由 URL 扩展名推断）；极速版另有 100MB 上限。 */
+  const allowedExts = version === "sentence" ? SENTENCE_EXTS : URL_VERSION_EXTS;
 
   /* WS 事件驱动当前任务进度；终态拉详情拿产物与 summary.segments */
   useEffect(() => {
@@ -291,9 +291,9 @@ export default function ASRPage() {
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
     if (!allowedExts.includes(ext)) {
       setFileError(
-        allowedExts === URL_VERSION_EXTS
-          ? `不支持的格式 .${ext || "未知"}：闲时/极速版支持 wav / mp3 / ogg / spx / amr / aac / m4a`
-          : `不支持的格式 .${ext || "未知"}：仅支持 mp3 / wav / ogg / pcm`,
+        version === "sentence"
+          ? `不支持的格式 .${ext || "未知"}：仅支持 mp3 / wav / ogg / pcm`
+          : `不支持的格式 .${ext || "未知"}：支持 wav / mp3 / ogg / spx / amr / aac / m4a`,
       );
       return;
     }
@@ -511,9 +511,7 @@ export default function ASRPage() {
                           <p className="text-[11px] text-muted">
                             {version === "sentence"
                               ? "支持 mp3 / wav / ogg / pcm"
-                              : version === "standard"
-                                ? "支持 mp3 / wav / ogg / pcm；提交后自动经对象存储中转（默认 3 天清理）"
-                                : "支持 wav / mp3 / ogg / spx / amr / aac / m4a；提交后自动经对象存储中转（默认 3 天清理）"}
+                              : "支持 wav / mp3 / ogg / spx / amr / aac / m4a；提交后自动经对象存储中转（默认 3 天清理）"}
                           </p>
                         </>
                       )}

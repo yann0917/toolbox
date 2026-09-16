@@ -376,32 +376,21 @@ func (t *ASRTool) saveArtifacts(in provider.TaskInput, resp ASRNostreamResp, sou
 	}, nil
 }
 
-// checkURLFileForBridge URL 版本本地文件转存前置校验：扩展名与各版本 URL 格式白名单一致
-// （转存后格式由 URL 扩展名推断），大小对齐官方上限——超限在转存前拦截，不白传大文件。
-// 标准版（录音文件识别）无明确大小上限文档，交服务端裁决，仅拦格式。
+// checkURLFileForBridge URL 版本本地文件转存前置校验：标准/闲时/极速三版本格式白名单一致
+// （wav/mp3/ogg/spx/amr/aac/m4a，转存后格式由 URL 扩展名推断），大小对齐官方上限——
+// 超限在转存前拦截，不白传大文件；标准版无明确大小上限文档，交服务端裁决。
 func checkURLFileForBridge(path, version string) error {
-	var exts []string
+	const exts = "wav/mp3/ogg/spx/amr/aac/m4a"
 	var maxBytes int64
 	switch version {
 	case asrVersionFlash:
-		exts = []string{"wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"}
 		maxBytes = 100 << 20 // 极速版 ≤100MB / 2h
 	case asrVersionIdle:
-		exts = []string{"wav", "mp3", "ogg", "spx", "amr", "aac", "m4a"}
 		maxBytes = 512 << 20 // 闲时版 ≤512MB / 5h
-	default: // standard：录音文件识别（wav/mp3/ogg/pcm）
-		exts = []string{"wav", "mp3", "ogg", "pcm"}
 	}
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
-	ok := false
-	for _, e := range exts {
-		if ext == e {
-			ok = true
-			break
-		}
-	}
-	if !ok {
-		return fmt.Errorf("%s版不支持该音频格式 .%s（支持 %s）", versionLabel(version), ext, strings.Join(exts, "/"))
+	if !strings.Contains("/"+exts+"/", "/"+ext+"/") {
+		return fmt.Errorf("%s版不支持该音频格式 .%s（支持 %s）", versionLabel(version), ext, exts)
 	}
 	if maxBytes <= 0 {
 		return nil
